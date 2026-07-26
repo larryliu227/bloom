@@ -1,0 +1,78 @@
+name: CI
+
+# No secrets required. Everything here runs on a clean checkout.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: typecheck · build · smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build client
+        run: npx vite build
+
+      - name: Check the build produced a client
+        run: |
+          test -f dist/client/index.html
+          ls -la dist/client/assets
+          # The page must reference a fingerprinted bundle, not a dev entry.
+          grep -q 'assets/index-' dist/client/index.html
+
+      - name: Smoke test — boot the server and hit /health
+        env:
+          NODE_ENV: production
+          PORT: "8080"
+        run: npm run smoke
+
+      - name: Docker image builds
+        run: docker build -t voidline:ci .
+
+      - name: Smoke test the image
+        run: |
+          docker run -d --name voidline-ci -p 8080:8080 voidline:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null; then break; fi
+            sleep 1
+          done
+          echo "--- /health ---"
+          curl -fsS http://127.0.0.1:8080/health
+          echo
+          echo "--- / ---"
+          curl -fsS -o /dev/null -w 'index.html: %{http_code} %{content_type}\n' http://127.0.0.1:8080/
+          echo "--- runs as non-root ---"
+          docker exec voidline-ci id
+          docker exec voidline-ci id -u | grep -qv '^0$'
+
+      - name: Container logs
+        if: always()
+        run: docker logs voidline-ci || true
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f voidline-ci || true

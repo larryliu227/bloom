@@ -1,0 +1,36 @@
+# VOIDLINE — Render Blueprint.
+#
+#   1. Push this repo to GitHub.
+#   2. Render dashboard -> New -> Blueprint -> pick the repo.
+#   3. Apply. Render reads this file, builds the Dockerfile and gives you an
+#      https:// URL. WebSockets are supported on every plan, including free.
+#
+# Render terminates TLS and proxies to $PORT inside the container, so the page
+# is served over https:// and the client's origin-derived socket becomes wss://
+# automatically. Nothing to configure.
+#
+# ---------------------------------------------------------------------------
+# Keep numInstances at 1. Rooms, players and weave boards are in-process state;
+# a second instance is a second, invisible game world. Render's load balancer
+# has no sticky sessions, so scaling out breaks "join by room code" outright.
+# ---------------------------------------------------------------------------
+
+services:
+  - type: web
+    name: voidline
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter # free also works; free instances sleep after 15 min idle
+    region: oregon # frankfurt / singapore / ohio / virginia also available
+    numInstances: 1
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render injects PORT and expects the process to bind it. The server reads
+      # process.env.PORT, so this is really just documentation — but pinning it
+      # keeps the Dockerfile's EXPOSE, the healthcheck and Render in agreement.
+      - key: PORT
+        value: "8080"

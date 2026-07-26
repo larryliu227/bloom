@@ -1,0 +1,69 @@
+# VOIDLINE — Fly.io deployment.
+#
+#   fly launch --no-deploy --copy-config --name voidline   # first time only
+#   fly deploy
+#   fly open                                               # play
+#
+# Fly terminates TLS at the edge and forwards to `internal_port` in plaintext,
+# so the browser gets `https://` + `wss://` for free and the client's
+# origin-derived socket URL just works. No env var needed for the WS host.
+#
+# ---------------------------------------------------------------------------
+# ONE MACHINE ONLY. Room state lives in this process's memory: `Matchmaking`
+# holds the rooms, the rooms hold the players and the weave boards. Two machines
+# means two disjoint universes and room codes that resolve for one player and
+# 404 for their friend. Do not `fly scale count 2` without sticky routing.
+# ---------------------------------------------------------------------------
+
+app = "voidline"
+primary_region = "iad"   # put this near your players; `fly platform regions` lists them
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Never stop the machine. A suspended/stopped machine drops every open
+  # WebSocket and evaporates all in-memory rooms — mid-match. Cheap enough to
+  # leave running; the alternative is players being kicked at random.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # MAX_SOCKETS in server/index.ts is 512; stay under it so Fly sheds load
+  # before the server starts closing sockets with 1013.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 400
+    hard_limit = 480
+
+  # Fly's proxy does not idle-close WebSockets, and the server sends its own
+  # heartbeat every HEARTBEAT_INTERVAL_MS, so long quiet lobbies survive.
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+    timeout = "4s"
+
+# A single shared vCPU is enough: the sim is 20 Hz over a few rooms. Bump memory
+# before CPU if you host many concurrent matches.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[deploy]
+  # Rolling on a single machine = stop, replace, start: a few seconds of
+  # downtime, but never two instances alive at once (which would split rooms
+  # across two universes). Deploy between matches; open sockets are dropped and
+  # the client reconnects into a server that no longer has their room.
+  strategy = "rolling"
+  wait_timeout = "5m"

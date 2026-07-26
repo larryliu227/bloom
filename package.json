@@ -1,0 +1,33 @@
+{
+  "name": "voidline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VOIDLINE — online multiplayer puzzle-combat. Route power through your Weave to charge abilities while fighting.",
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "docker:build": "docker build -t voidline:latest .",
+    "docker:run": "docker run --rm -p ${PORT:-8080}:8080 --name voidline voidline:latest",
+    "smoke": "PORT=${PORT:-8290}; NODE_ENV=production PORT=$PORT node --import tsx server/index.ts & SRV=$!; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl -fsS http://127.0.0.1:$PORT/health >/dev/null 2>&1 && break; sleep 1; done; OK=0; echo '--- /health ---'; curl -fsS http://127.0.0.1:$PORT/health || OK=1; echo; echo '--- / ---'; curl -fsS -o /dev/null -w 'index.html %{http_code} %{content_type}\\n' http://127.0.0.1:$PORT/ || OK=1; kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; exit $OK"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.25.12": true
+  }
+}

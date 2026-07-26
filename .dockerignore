@@ -1,0 +1,49 @@
+# Keep the build context small and force a clean, reproducible install/build
+# inside the image. Anything the Dockerfile needs is COPYed explicitly.
+
+# Installed and built artefacts — rebuilt in the build stage.
+node_modules
+**/node_modules
+dist
+.vite
+**/*.tsbuildinfo
+
+# VCS and CI
+.git
+.gitignore
+.github
+
+# Container / platform config (not needed inside the image)
+Dockerfile
+.dockerignore
+fly.toml
+render.yaml
+railway.json
+.fly
+
+# Docs
+docs
+README.md
+*.md
+
+# Local env and secrets — never bake these into a layer.
+.env
+.env.*
+!.env.example
+
+# Logs, scratch, editor and OS noise
+*.log
+npm-debug.log*
+logs
+tmp
+temp
+scratch
+scratchpad
+coverage
+.cache
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*~
