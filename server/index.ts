@@ -29,7 +29,7 @@ import type { ClientMsg } from '@shared/protocol.js';
 import type { PlayerId } from '@shared/types.js';
 
 import { Matchmaking, isGameMode, normalizeRoomCode } from './matchmaking.js';
-import { loadModeModules, modeStatus } from './modes/index.js';
+import { loadModeModules, modeStatus } from './modes.js';
 import { Client, isPlayerId, newPlayerId, sanitizeName } from './net.js';
 
 const PORT = readPort();
@@ -73,7 +73,7 @@ const http = createServer((req, res) => {
   }
 
   if (!PRODUCTION) {
-    sendText(res, 200, `VOIDLINE server — protocol ${PROTOCOL_VERSION}\nWebSocket endpoint: ws://<host>:${PORT}\nRun the client with: npm run dev:client\n`);
+    sendText(res, 200, `BLOOM server — protocol ${PROTOCOL_VERSION}\nWebSocket endpoint: ws://<host>:${PORT}\nRun the client with: npm run dev:client\n`);
     return;
   }
 
@@ -180,7 +180,7 @@ function route(client: Client, msg: ClientMsg): void {
       }
       partFromCurrentRoom(client);
       const room = matchmaking.createRoom(msg.mode, {
-        chapter: typeof msg.chapter === 'number' ? msg.chapter : 1,
+        level: typeof msg.level === 'number' ? msg.level : 1,
         isPublic: false,
       });
       if (!room.join(client)) {
@@ -234,8 +234,8 @@ function route(client: Client, msg: ClientMsg): void {
     default: {
       const room = matchmaking.get(client.roomId);
       if (!room) {
-        // Input arriving after a room closed is normal; do not spam the client.
-        if (msg.t !== 'input' && msg.t !== 'rotateTile') {
+        // Taps arriving after a room closed are normal; do not spam the client.
+        if (msg.t !== 'tap') {
           client.error('not_in_room', 'You are not in a room.');
         }
         return;
@@ -348,7 +348,7 @@ const statsTimer = setInterval(() => {
   if (s.rooms === 0 && sockets.size === 0) return;
   console.log(
     `[server] ${s.rooms} room(s) (${s.playing} in match) · ${s.players} in rooms · ` +
-      `${sockets.size} socket(s) · duel ${s.byMode.pvp_duel} arena ${s.byMode.pvp_arena} coop ${s.byMode.coop_story}`,
+      `${sockets.size} socket(s) · duel ${s.byMode.duel} garden ${s.byMode.garden} coop ${s.byMode.coop_blight}`,
   );
 }, STATS_INTERVAL_MS);
 
@@ -530,7 +530,7 @@ async function main(): Promise<void> {
   const modes = modeStatus();
 
   http.listen(PORT, '0.0.0.0', () => {
-    console.log(`[server] VOIDLINE listening on 0.0.0.0:${PORT} (protocol ${PROTOCOL_VERSION})`);
+    console.log(`[server] BLOOM listening on 0.0.0.0:${PORT} (protocol ${PROTOCOL_VERSION})`);
     console.log(`[server] tick ${TICK_RATE} Hz · modes: ${describeModes(modes)}`);
     if (PRODUCTION) console.log(`[server] serving client from ${CLIENT_DIR}`);
   });

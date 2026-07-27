@@ -2,67 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark" />
+    <!--
+      viewport-fit=cover + safe-area padding in CSS keeps the board clear of the notch.
+      user-scalable=no stops double-tap zoom from eating gameplay taps on a phone.
+    -->
     <meta
-      name="description"
-      content="VOIDLINE — online multiplayer puzzle-combat aboard a fracturing deep-space station. Route power through your Weave to charge abilities while you fight."
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#06080f" />
-    <title>VOIDLINE</title>
+    <meta name="theme-color" content="#0d1410" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>BLOOM</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2306080f'/%3E%3Cpath d='M16 4 L26 10 L26 22 L16 28 L6 22 L6 10 Z' fill='none' stroke='%235ef0ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3.5' fill='%235ef0ff'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1410'/><rect x='6' y='2' width='4' height='12' fill='%233ddc6b'/><rect x='2' y='6' width='12' height='4' fill='%233ddc6b'/></svg>"
     />
-    <!-- Painted before any stylesheet resolves so there is never a white flash. -->
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        background: #06080f;
-        color: #d6e9f6;
-        overflow: hidden;
-      }
-      #boot {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 14px;
-        background: #06080f;
-        font: 400 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        letter-spacing: 0.28em;
-        color: #4c637a;
-        z-index: 999;
-      }
-      #boot b {
-        font-size: 22px;
-        letter-spacing: 0.5em;
-        color: #5ef0ff;
-        font-weight: 600;
-      }
-    </style>
-    <link rel="stylesheet" href="/client/style.css" />
+    <link rel="stylesheet" href="/client/bloom.css" />
   </head>
   <body>
-    <canvas id="game"></canvas>
     <div id="overlay"></div>
-
-    <div id="boot">
-      <b>VOIDLINE</b>
-      <span>initialising conduit lattice…</span>
-    </div>
-
     <noscript>
-      <div style="position: fixed; inset: 0; display: grid; place-items: center; font-family: monospace">
-        VOIDLINE requires JavaScript.
-      </div>
+      <div class="noscript">BLOOM needs JavaScript.</div>
     </noscript>
-
     <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

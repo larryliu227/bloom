@@ -23,7 +23,7 @@ import { Room } from './room.js';
 import type { RoomOptions } from './room.js';
 import type { Client } from './net.js';
 
-const VALID_MODES: readonly GameMode[] = ['pvp_duel', 'pvp_arena', 'coop_story'];
+const VALID_MODES: readonly GameMode[] = ['duel', 'garden', 'coop_blight'];
 
 export function isGameMode(value: unknown): value is GameMode {
   return typeof value === 'string' && (VALID_MODES as readonly string[]).includes(value);
@@ -78,13 +78,13 @@ export class Matchmaking {
 
   /** Live counts for the periodic log line. */
   stats(): { rooms: number; players: number; byMode: Record<GameMode, number>; playing: number } {
-    const byMode = { pvp_duel: 0, pvp_arena: 0, coop_story: 0 } as Record<GameMode, number>;
+    const byMode = { duel: 0, garden: 0, coop_blight: 0 } as Record<GameMode, number>;
     let players = 0;
     let playing = 0;
     for (const room of this.rooms.values()) {
       byMode[room.mode] += 1;
       players += room.clients.size;
-      if (room.phase === 'playing' || room.phase === 'intermission') playing += 1;
+      if (room.phase === 'playing' || room.phase === 'countdown') playing += 1;
     }
     return { rooms: this.rooms.size, players, byMode, playing };
   }

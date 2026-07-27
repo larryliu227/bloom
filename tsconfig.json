@@ -20,5 +20,11 @@
       "@shared/*": ["shared/*"]
     }
   },
-  "include": ["shared/**/*.ts", "server/**/*.ts", "client/**/*.ts", "vite.config.ts"]
+  /*
+   * The simple version is local-only: pick a role, play a garden against bots on
+   * this device. `server/` is the verified VOIDLINE engine (rooms, lobby, room
+   * codes, reconnect tokens, rate limiting) kept for when online play returns —
+   * it is parked out of the build until then rather than deleted.
+   */
+  "include": ["shared/**/*.ts", "client/**/*.ts", "vite.config.ts"]
 }

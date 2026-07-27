@@ -6,7 +6,11 @@
  * `Vec2` so simulation state can never be aliased by accident.
  */
 
-import type { Vec2 } from './types.js';
+/** A 2D point. Local to this module now that the old world types are parked. */
+export interface Vec2 {
+  x: number;
+  y: number;
+}
 
 export const TAU = Math.PI * 2;
 export const EPSILON = 1e-6;

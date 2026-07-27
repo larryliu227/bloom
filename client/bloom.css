@@ -1,0 +1,472 @@
+/*
+ * BLOOM — simple version styling.
+ *
+ * Portrait phone first. Chunky, flat, pixel-adjacent: hard edges, no gradients on
+ * anything that matters, no blur. Every interactive element clears a 44px thumb.
+ */
+
+:root {
+  --bg: #0d1410;
+  --panel: #16211a;
+  --line: #2c4436;
+  --ink: #dff5e4;
+  --dim: #7f9c8a;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Gameplay is taps; never let the page pan or bounce under a thumb. */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none;
+  overflow: hidden;
+}
+
+.noscript {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* ---------------------------------------------------------------- board */
+
+.board-wrap {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-t) + 44px) 8px calc(var(--safe-b) + 8px);
+}
+.board-wrap.hidden {
+  display: none;
+}
+.board-canvas {
+  /* The renderer draws at low resolution and we scale up hard — never smooth it,
+     or the pixel art turns to mush. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  /* No max-width/max-height here on purpose: `fitCanvas` sets an exact pixel size
+     from the measured content box, and a CSS clamp on top of that would shrink the
+     element without the renderer knowing — which desynced draw space from tap
+     space and made the hitboxes drift. */
+  touch-action: none;
+}
+
+/* ---------------------------------------------------------------- overlay */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#overlay > * {
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------- menu */
+
+.menu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: calc(var(--safe-t) + 16px) 16px calc(var(--safe-b) + 16px);
+  background: var(--bg);
+  overflow-y: auto;
+}
+.brand {
+  margin: 0;
+  font-size: clamp(38px, 13vw, 64px);
+  letter-spacing: 0.16em;
+  color: #3ddc6b;
+  text-shadow: 0 3px 0 #14351f;
+}
+.tagline {
+  margin: 0 0 14px;
+  color: var(--dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+.role-card {
+  --role: #3ddc6b;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 74px;
+  padding: 12px 14px;
+  text-align: left;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-left: 8px solid var(--role);
+  border-radius: 2px;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.06s steps(2), background 0.12s;
+}
+.role-card:active {
+  transform: translateY(2px);
+  background: #1e2f24;
+}
+.role-name {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--role);
+}
+.role-blurb {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--dim);
+}
+
+/* ---------------------------------------------------------------- hud */
+
+.hud {
+  position: absolute;
+  top: var(--safe-t);
+  left: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  background: linear-gradient(#0d1410ee, #0d141000);
+}
+.hud-back {
+  width: 44px;
+  height: 36px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.hud-back:active {
+  background: #1e2f24;
+}
+.hud-energy {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffc23d;
+}
+.hud-energy::before {
+  content: "⚡ ";
+}
+
+@media (min-width: 560px) {
+  .role-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- tech */
+
+.hud-tech {
+  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.hud-tech:active { transform: translateY(2px); }
+.hud-tech-pip {
+  display: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #ffc23d;
+  color: #10200f;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.hud-tech-pip.on { display: inline-block; }
+
+.techpanel {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: calc(var(--safe-t) + 12px) 12px calc(var(--safe-b) + 12px);
+  background: rgba(9, 16, 12, 0.94);
+  overflow-y: auto;
+}
+.techpanel.hidden { display: none; }
+.techpanel-head { display: flex; align-items: center; }
+.techpanel-title { margin: 0; font-size: 22px; letter-spacing: 0.18em; color: #3ddc6b; }
+.techpanel-close {
+  margin-left: auto;
+  width: 44px;
+  height: 44px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.techpanel-group {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--dim);
+}
+.tech-row { display: flex; flex-direction: column; gap: 8px; }
+
+.tech-btn {
+  position: relative;
+  display: grid;
+  grid-template-areas: "icon name cost" "icon blurb cost";
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 0 10px;
+  min-height: 60px;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tech-btn:active:not(:disabled) { transform: translateY(2px); }
+.tech-btn:disabled { cursor: default; }
+.tech-btn:disabled:not(.owned) { opacity: 0.42; }
+.tech-btn.owned { border-color: #3ddc6b; background: #16301f; opacity: 1; }
+.tech-btn.owned .tech-cost { color: #3ddc6b; }
+.tech-btn.owned .tech-cost::after { content: " ✓"; }
+.tech-btn.locked { opacity: 0.3; }
+.tech-icon { grid-area: icon; font-size: 22px; text-align: center; }
+.tech-name { grid-area: name; font-size: 14px; font-weight: 700; letter-spacing: 0.09em; }
+.tech-blurb { grid-area: blurb; font-size: 12px; color: var(--dim); line-height: 1.25; }
+.tech-cost { grid-area: cost; font-size: 15px; color: #ffc23d; font-weight: 700; }
+.tech-req {
+  position: absolute;
+  right: 10px;
+  bottom: 4px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: #7f6a3a;
+}
+.tech-btn.owned .tech-req, .tech-btn:not(.locked) .tech-req { display: none; }
+
+/* The board no longer shares the bottom edge with a tech bar. */
+.board-wrap { padding-bottom: calc(var(--safe-b) + 10px); }
+
+/* ---------------------------------------------------------------- result */
+.result {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-t) + 16px) 16px calc(var(--safe-b) + 16px);
+  background: rgba(9, 16, 12, 0.9);
+}
+.result-box {
+  --role: #3ddc6b;
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  background: var(--panel);
+  border: 2px solid var(--role);
+  border-radius: 2px;
+}
+.result-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--role);
+}
+.result-reason { font-size: 13px; color: var(--dim); margin-bottom: 6px; }
+.result-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #101a14;
+  border-radius: 2px;
+  font-size: 13px;
+}
+.result-row.is-you { outline: 1px solid var(--line); }
+.result-dot { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+.result-name { flex: 1; }
+.result-tiles { font-weight: 700; color: #ffc23d; }
+.result-out { font-size: 10px; color: #ff5a3c; letter-spacing: 0.1em; }
+.result-btn {
+  min-height: 48px;
+  background: var(--role);
+  color: #0d1410;
+  border: none;
+  border-radius: 2px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+.result-btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+.result-btn:active { transform: translateY(2px); }
+
+/* ---------------------------------------------------------------- actions */
+.hud-act {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 46px;
+  min-height: 36px;
+  padding: 0 9px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.hud-act.hidden { display: none; }
+.hud-act:disabled { opacity: 0.4; cursor: default; }
+.hud-act:active:not(:disabled) { transform: translateY(2px); }
+.hud-act-cost { font-size: 11px; color: #ffc23d; font-weight: 700; }
+
+.ally-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ally-row.is-allied { border-color: #3ddc6b; background: #16301f; }
+.ally-tag { margin-left: auto; font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+.ally-row.is-allied .ally-tag { color: #3ddc6b; }
+
+/* ---------------------------------------------------------------- sky
+   The board is the same colours day and night; the SURROUND shifts, so the time
+   of day is unmistakable without recolouring gameplay information. */
+body { transition: background 1.2s linear; }
+body[data-sky="night"] { --bg: #070c14; }
+body[data-sky="night"] .board-wrap { background: radial-gradient(120% 80% at 50% 0%, #0b1424 0%, #070c14 70%); }
+body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0%, #16241a 0%, #0d1410 70%); }
+
+/* ------------------------------------------------------- tech tree (branching) */
+.tech-branch {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.tech-tier { display: flex; flex-direction: column; gap: 8px; flex: none; }
+/* The connector IS the prerequisite: you can see what unlocks what. */
+.tech-link {
+  flex: none;
+  width: 22px;
+  align-self: center;
+  border-top: 3px solid var(--line);
+  position: relative;
+}
+.tech-link::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -6px;
+  border: 5px solid transparent;
+  border-left-color: var(--line);
+}
+.tech-node {
+  position: relative;
+  width: 148px;
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tech-node:active:not(:disabled) { transform: translateY(2px); }
+.tech-node .tech-icon { font-size: 22px; }
+.tech-node .tech-name { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; }
+.tech-node .tech-blurb { font-size: 11px; color: var(--dim); line-height: 1.25; }
+.tech-node .tech-cost {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffc23d;
+}
+.tech-node .tech-lock { display: none; position: absolute; right: 10px; bottom: 8px; font-size: 13px; }
+.tech-node:disabled:not(.owned) { opacity: 0.5; cursor: default; }
+.tech-node.locked { opacity: 0.34; }
+.tech-node.locked .tech-lock { display: block; }
+.tech-node.owned { border-color: #3ddc6b; background: #16301f; opacity: 1; }
+.tech-node.owned .tech-cost { color: #3ddc6b; }
+.tech-node.owned .tech-cost::after { content: " ✓"; }

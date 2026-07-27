@@ -246,7 +246,12 @@ export interface ZoneEntity extends BaseEntity {
 export type Entity = PlayerEntity | EnemyEntity | ProjectileEntity | ZoneEntity;
 
 // ============================================================ world / modes
-export type GameMode = 'pvp_duel' | 'pvp_arena' | 'coop_story';
+/**
+ * BLOOM owns the mode list now (`shared/bloom.ts`). Re-exported here so the
+ * engine files that were kept verbatim — `net.ts`, `matchmaking.ts`,
+ * `index.ts` — keep resolving it from the same place they always did.
+ */
+export type { GameMode } from './bloom.js';
 export type MatchPhase = 'lobby' | 'loadout' | 'countdown' | 'playing' | 'intermission' | 'complete';
 
 export interface WorldState {
