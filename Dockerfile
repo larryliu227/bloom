@@ -52,6 +52,10 @@ RUN npm ci --no-audit --no-fund
 
 # Everything Vite needs to produce dist/client.
 COPY tsconfig.json vite.config.ts index.html ./
+# `public/` is empty, and git does not track empty directories — so this COPY was
+# fine locally and failed on every clean checkout with "/public: not found". It is
+# kept alive by `public/.gitkeep`; delete that only if you also delete this line and
+# `publicDir` in vite.config.ts.
 COPY public ./public
 COPY shared ./shared
 COPY client ./client
