@@ -17,11 +17,15 @@
 
 services:
   - type: web
-    name: voidline
+    name: bloom
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter # free also works; free instances sleep after 15 min idle
+    # Free: no card needed. Instances sleep after ~15 min idle and cold-start in a
+    # couple of minutes — the first person to open the link wakes it. Room state is
+    # in memory, so a sleep ends any match still in progress; move to `starter` if
+    # that starts to matter.
+    plan: free
     region: oregon # frankfurt / singapore / ohio / virginia also available
     numInstances: 1
     healthCheckPath: /health

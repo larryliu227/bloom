@@ -5,10 +5,11 @@
  *
  * Two rules shape this file:
  *
- * 1. The server is authoritative and the client sends exactly ONE gameplay
- *    message: `tap`. There is no movement, no aim, no prediction and therefore
- *    no reconciliation — the client never authors an outcome, only an intent,
- *    and the server decides whether that intent was even legal.
+ * 1. The server is authoritative and every client message is an INTENT, never an
+ *    outcome. `tap` is the whole of the moment-to-moment game; `buyTech`, `hatch`,
+ *    `takeover` and `pact` are the deliberate acts around it. There is no movement, no
+ *    aim, no prediction and therefore no reconciliation — the client says what it
+ *    wants and the server decides whether it was even legal.
  * 2. The board is small (12x18 cells), so the server ships the WHOLE match
  *    state every tick in `match`. It compresses to almost nothing over
  *    permessage-deflate and it deletes an entire class of desync bugs.
@@ -18,7 +19,7 @@
  * up, bots, chat, ping. Do not weaken any of it.
  */
 
-import type { GameMode, MatchState, PlayerId, RoleId, RoomId } from './bloom.js';
+import type { GameMode, MatchState, PlayerId, RoleId, RoomId, TechId } from './bloom.js';
 
 // ============================================================ lobby types
 
@@ -28,14 +29,18 @@ export type BotTierId = 'sprout' | 'gardener' | 'reaper';
 export interface LobbyPlayer {
   playerId: PlayerId;
   name: string;
-  /** One of four. There are no loadouts in BLOOM — the role IS the build. */
+  /**
+   * The plant this seat drafted, or null before they have. Not unique — two people
+   * may play the same plant, and gardens are told apart by seat colour.
+   */
   role: RoleId | null;
   ready: boolean;
   connected: boolean;
   /**
-   * Server-controlled AI gardener (see `server/bots.ts`). Absent/false for
-   * humans. Bots hold a real seat; they are always ready and are never counted
-   * as a socket, a host candidate, or a reconnect slot.
+   * Server-controlled AI gardener. Absent/false for humans. Bots hold a real
+   * seat; they are always ready and are never counted as a socket, a host
+   * candidate, or a reconnect slot. Behaviour lives in the shared simulation
+   * (`shared/garden.ts` — `stepBot`), so a bot plays by exactly the rules you do.
    */
   isBot?: boolean;
   /** Display only — the server owns behaviour. */
@@ -86,6 +91,22 @@ export type ClientMsg =
   // gameplay — this is the entire input surface of the game
   /** Tap one cell. Expansion, attack and puzzle move, all at once. */
   | { t: 'tap'; cell: number }
+  /** Buy an upgrade. The server enforces the tech tree, not the UI. */
+  | { t: 'buyTech'; tech: TechId }
+  /** FUNGAL only: spend energy to hatch an insect somewhere on your network. */
+  | { t: 'hatch' }
+  /**
+   * SPORE only: HOSTILE TAKEOVER, centred on `cell`. Ten acid, 9x9, instant.
+   * An item rather than a tech — you buy it every time you use it.
+   */
+  | { t: 'takeover'; cell: number }
+  /**
+   * Offer a pact to `seat` — or, if they have already offered, accept it; or, if
+   * you are already allied, betray them. One message for all three because from
+   * the player's side it is one button, and which of the three it means is a fact
+   * about the match state that only the server reliably knows.
+   */
+  | { t: 'pact'; seat: number }
   | { t: 'chat'; text: string }
   | { t: 'ping'; ts: number };
 
@@ -108,6 +129,14 @@ export type ServerMsg =
    */
   | { t: 'match'; state: MatchState }
   | { t: 'matchEnd'; result: MatchResult }
+  /**
+   * Pact offers involving THIS client, sent only to them and only when they change.
+   *
+   * Deliberately not part of `match`: that snapshot goes to everybody, and who has
+   * offered whom a pact is exactly the information a four-way game is played with.
+   * Broadcasting it would turn diplomacy into a public ledger.
+   */
+  | { t: 'pacts'; toYou: number[]; fromYou: number[] }
   | { t: 'chat'; from: PlayerId; name: string; text: string }
   | { t: 'pong'; ts: number; serverTime: number };
 

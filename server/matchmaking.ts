@@ -17,7 +17,7 @@ import {
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
 } from '@shared/constants.js';
-import type { GameMode, PlayerId, RoomId } from '@shared/types.js';
+import type { GameMode, PlayerId, RoomId } from '@shared/bloom.js';
 
 import { Room } from './room.js';
 import type { RoomOptions } from './room.js';
@@ -25,8 +25,22 @@ import type { Client } from './net.js';
 
 const VALID_MODES: readonly GameMode[] = ['duel', 'garden', 'coop_blight'];
 
+/**
+ * Modes that can actually be played right now.
+ *
+ * `coop_blight` is in the protocol and in the stats keys but there is no Blight in
+ * the simulation yet, so a room in that mode would be four gardens and no enemy.
+ * Refusing it with a clear error beats starting a match that silently is not the
+ * game the player asked for.
+ */
+const PLAYABLE_MODES: readonly GameMode[] = ['duel', 'garden'];
+
 export function isGameMode(value: unknown): value is GameMode {
   return typeof value === 'string' && (VALID_MODES as readonly string[]).includes(value);
+}
+
+export function isPlayableMode(value: unknown): value is GameMode {
+  return typeof value === 'string' && (PLAYABLE_MODES as readonly string[]).includes(value);
 }
 
 /** Normalize whatever the player typed into a room code. */

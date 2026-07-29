@@ -1,5 +1,5 @@
 /**
- * VOIDLINE — server entry point.
+ * BLOOM — server entry point.
  *
  * One HTTP server, one WebSocket server riding its upgrade, one `setInterval`
  * at TICK_RATE that drives every room with a real measured delta. In production
@@ -21,15 +21,15 @@ import type { WebSocket } from 'ws';
 import {
   DEFAULT_PORT,
   HEARTBEAT_INTERVAL_MS,
+  SNAPSHOT_RATE,
   TICK_MS,
   TICK_RATE,
 } from '@shared/constants.js';
 import { PROTOCOL_VERSION } from '@shared/protocol.js';
 import type { ClientMsg } from '@shared/protocol.js';
-import type { PlayerId } from '@shared/types.js';
+import type { PlayerId } from '@shared/bloom.js';
 
-import { Matchmaking, isGameMode, normalizeRoomCode } from './matchmaking.js';
-import { loadModeModules, modeStatus } from './modes.js';
+import { Matchmaking, isPlayableMode, normalizeRoomCode } from './matchmaking.js';
 import { Client, isPlayerId, newPlayerId, sanitizeName } from './net.js';
 
 const PORT = readPort();
@@ -67,7 +67,6 @@ const http = createServer((req, res) => {
       uptimeSec: Math.round(process.uptime()),
       sockets: sockets.size,
       ...stats,
-      modes: modeStatus(),
     });
     return;
   }
@@ -174,8 +173,8 @@ function route(client: Client, msg: ClientMsg): void {
       return;
 
     case 'createRoom': {
-      if (!isGameMode(msg.mode)) {
-        client.error('bad_mode', 'Unknown game mode.');
+      if (!isPlayableMode(msg.mode)) {
+        client.error('bad_mode', 'That mode is not playable yet — try duel or garden.');
         return;
       }
       partFromCurrentRoom(client);
@@ -210,8 +209,8 @@ function route(client: Client, msg: ClientMsg): void {
     }
 
     case 'quickPlay': {
-      if (!isGameMode(msg.mode)) {
-        client.error('bad_mode', 'Unknown game mode.');
+      if (!isPlayableMode(msg.mode)) {
+        client.error('bad_mode', 'That mode is not playable yet — try duel or garden.');
         return;
       }
       partFromCurrentRoom(client);
@@ -524,25 +523,12 @@ process.on('unhandledRejection', (err) => {
   console.error('[server] unhandled rejection:', err);
 });
 
-async function main(): Promise<void> {
-  // Never fatal: a missing or broken mode module degrades to NullModeHandler.
-  await loadModeModules();
-  const modes = modeStatus();
-
+function main(): void {
   http.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] BLOOM listening on 0.0.0.0:${PORT} (protocol ${PROTOCOL_VERSION})`);
-    console.log(`[server] tick ${TICK_RATE} Hz · modes: ${describeModes(modes)}`);
+    console.log(`[server] tick ${TICK_RATE} Hz · snapshots ${SNAPSHOT_RATE} Hz`);
     if (PRODUCTION) console.log(`[server] serving client from ${CLIENT_DIR}`);
   });
 }
 
-function describeModes(modes: Record<string, boolean>): string {
-  return Object.entries(modes)
-    .map(([name, ok]) => `${name}${ok ? '' : ' (stub)'}`)
-    .join(', ');
-}
-
-main().catch((err) => {
-  console.error('[server] failed to start:', err);
-  process.exit(1);
-});
+main();

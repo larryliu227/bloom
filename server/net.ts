@@ -22,7 +22,7 @@ import {
 } from '@shared/constants.js';
 import { decode, encode } from '@shared/protocol.js';
 import type { ClientMsg, ServerMsg } from '@shared/protocol.js';
-import type { PlayerId, RoomId } from '@shared/types.js';
+import type { PlayerId, RoomId } from '@shared/bloom.js';
 
 /** Why a socket went away — surfaced to the room so it can log sensibly. */
 export type ClientCloseReason =

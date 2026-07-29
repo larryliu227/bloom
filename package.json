@@ -1,9 +1,9 @@
 {
-  "name": "voidline",
+  "name": "bloom",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "VOIDLINE — online multiplayer puzzle-combat. Route power through your Weave to charge abilities while fighting.",
+  "description": "BLOOM — touch-first territory RTS. Your territory must stay connected to your seedling; cutting is the same tap as growing.",
   "scripts": {
     "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",

@@ -176,6 +176,11 @@ body {
   font-size: 20px;
   font-weight: 700;
   color: #ffc23d;
+  /* Energy is uncapped, so this readout grows digits during a long match. Fixed
+     advance widths stop the whole HUD shuffling sideways every time it ticks. */
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  white-space: nowrap;
 }
 .hud-energy::before {
   content: "⚡ ";
@@ -342,7 +347,11 @@ body {
 .result-out { font-size: 10px; color: #ff5a3c; letter-spacing: 0.1em; }
 .result-btn {
   min-height: 48px;
-  background: var(--role);
+  /* The fallback is load-bearing: this class is also used in the lobby and the
+     online menu, where there is no --role in scope. Without it `var(--role)` is
+     invalid, the background falls back to transparent, and a button with #0d1410
+     text is black-on-black — present, clickable, and completely invisible. */
+  background: var(--role, #3ddc6b);
   color: #0d1410;
   border: none;
   border-radius: 2px;
@@ -470,3 +479,268 @@ body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0
 .tech-node.owned { border-color: #3ddc6b; background: #16301f; opacity: 1; }
 .tech-node.owned .tech-cost { color: #3ddc6b; }
 .tech-node.owned .tech-cost::after { content: " ✓"; }
+
+/* ---------------------------------------------------------------- online
+
+   The menus, the room, and the one line of connection status. Same chunky flat
+   language as the rest: 48px thumb targets, hard edges, no blur.
+*/
+
+.menu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+/* The two front-door choices. Two lines: the verb, then what it means. */
+.big-btn {
+  --role: #3ddc6b;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 62px;
+  padding: 12px 16px;
+  background: var(--role);
+  color: #0d1410;
+  border: none;
+  border-radius: 2px;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  cursor: pointer;
+  transition: transform 0.06s steps(2);
+}
+.big-btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+.big-btn:active { transform: translateY(2px); }
+.big-btn-sub {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+  text-transform: none;
+}
+
+.join-row { display: flex; gap: 8px; }
+.join-row > .result-btn { flex: 1; }
+/* A room code is read out loud and typed in — wide letters, no ambiguity. */
+.code-input {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 14px;
+  background: #101a14;
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.code-input::placeholder { color: var(--dim); letter-spacing: 0.2em; }
+.code-input:focus { outline: none; border-color: #3ddc6b; }
+
+.lobby-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: min(420px, 100%);
+  margin-bottom: 6px;
+  padding: 14px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 2px;
+}
+.lobby-label { font-size: 11px; letter-spacing: 0.22em; color: var(--dim); }
+/* The code is the biggest thing on the screen because sharing it is the task. */
+.lobby-code {
+  font-size: clamp(34px, 12vw, 46px);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #3ddc6b;
+  text-shadow: 0 3px 0 #14351f;
+}
+.lobby-head > .result-btn { width: 100%; }
+
+.lobby-tag {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 2px 4px;
+}
+.lobby-ready { font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+.lobby-ready.on { color: #3ddc6b; }
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: min(420px, 100%);
+  margin-bottom: 8px;
+}
+.chip {
+  --role: #3ddc6b;
+  flex: 1 0 auto;
+  min-height: 44px;
+  padding: 0 12px;
+  background: #101a14;
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-left: 6px solid var(--role);
+  border-radius: 2px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+.chip.on { background: #16301f; border-color: var(--role); }
+/* A plant somebody else holds is dimmed, not hidden — it exists, it is just taken. */
+.chip:disabled { opacity: 0.3; cursor: default; }
+
+.countdown {
+  min-height: 62px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #ffc23d;
+  border: 2px dashed var(--line);
+  border-radius: 2px;
+}
+
+.notice {
+  width: min(420px, 100%);
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  background: #2a1712;
+  border-left: 4px solid #ff5a3c;
+  border-radius: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ffd0c4;
+}
+
+/* Connection state, on the one line that reports it. */
+.tagline[data-status='connecting'] { color: #ffc23d; }
+.tagline[data-status='offline'] { color: #ff5a3c; }
+.tagline[data-status='online'] { color: #3ddc6b; }
+
+/* How much of other people's gardens you killed by cutting. The real score. */
+.result-cut { font-size: 11px; color: #ff8a6b; letter-spacing: 0.06em; }
+
+/* A standing pact offer waiting on your answer. */
+.ally-row.is-offered { border-color: #ffc23d; }
+.ally-row.is-offered .ally-tag { color: #ffc23d; }
+
+/* A forked tech tree needs the prerequisite named on the card: two tier-3s sit in
+   the same column and the connector between columns cannot say which is which. */
+.tech-node .tech-req { display: none; }
+.tech-node.locked .tech-req { display: block; }
+
+/* ---------------------------------------------------------------- draft
+
+   Choosing a plant, with the map already on screen behind it. A sheet rather than
+   a screen: the board is the evidence you are deciding from, so it must stay
+   visible while you decide.
+*/
+.draft {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px calc(var(--safe-b) + 12px);
+  background: rgba(9, 16, 12, 0.96);
+  border-top: 2px solid var(--line);
+}
+.draft.hidden { display: none; }
+.draft-head { display: flex; align-items: center; gap: 8px; }
+/* Your seat's colour. Plants are not unique, so this is what identifies you. */
+.draft-you {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  flex: none;
+  box-shadow: 0 0 0 2px #0d1410, 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
+.draft-map {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #3ddc6b;
+}
+.draft-clock {
+  margin-left: auto;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffc23d;
+  font-variant-numeric: tabular-nums;
+}
+.draft-blurb { font-size: 12px; color: var(--dim); line-height: 1.3; }
+.draft-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
+}
+.draft-chip {
+  --role: #3ddc6b;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 52px;
+  padding: 7px 9px;
+  text-align: left;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-left: 6px solid var(--role);
+  border-radius: 2px;
+  font: inherit;
+  cursor: pointer;
+}
+/* The fifth plant spans the row so the grid never ends on a lonely half-width card. */
+.draft-chip:nth-child(5) { grid-column: 1 / -1; }
+.draft-chip:active:not(:disabled) { transform: translateY(2px); }
+.draft-chip.on { background: #16301f; border-color: var(--role); }
+.draft-chip-name { font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: var(--role); }
+.draft-chip-blurb { font-size: 11px; color: var(--dim); line-height: 1.25; }
+
+/* The board has to stay clear of the sheet while it is up. */
+.board-wrap.drafting { padding-bottom: 300px; }
+
+/* Acid: the tech currency. Sits next to energy so the two budgets read together. */
+.hud-acid {
+  font-size: 20px;
+  font-weight: 700;
+  color: #9ee83d;
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  white-space: nowrap;
+}
+.hud-acid::before { content: "🜁 "; }
+
+/* An armed item is waiting for a target — say so loudly, and on the board itself. */
+.hud-act.armed {
+  background: #9ee83d;
+  color: #10200f;
+  border-color: #caff8a;
+}
+.board-wrap.arming { box-shadow: inset 0 0 0 3px #9ee83d; }
+.board-wrap.arming .board-canvas { cursor: crosshair; }

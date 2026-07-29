@@ -21,10 +21,13 @@
     }
   },
   /*
-   * The simple version is local-only: pick a role, play a garden against bots on
-   * this device. `server/` is the verified VOIDLINE engine (rooms, lobby, room
-   * codes, reconnect tokens, rate limiting) kept for when online play returns —
-   * it is parked out of the build until then rather than deleted.
+   * EVERY source directory is in here, deliberately.
+   *
+   * `server/` used to be excluded while online play was parked, and the result was
+   * that the pivot deleted three modules the server still imported and nothing
+   * noticed: `npm run typecheck` passed for months while `npm run dev` could not
+   * boot the server at all. Code that is not typechecked is not code, it is a
+   * rumour. If something here is genuinely dormant, delete it — git remembers.
    */
-  "include": ["shared/**/*.ts", "client/**/*.ts", "vite.config.ts"]
+  "include": ["shared/**/*.ts", "client/**/*.ts", "server/**/*.ts", "vite.config.ts"]
 }

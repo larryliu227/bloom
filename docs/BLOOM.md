@@ -20,7 +20,7 @@ The previous design failed for three reasons. Do not reintroduce any of them.
    tile *at all times*, and opponents are severing it constantly. It is never solved.
 2. **The puzzle sat beside combat.** Here there is exactly one interaction — tapping a
    tile — and it is simultaneously your expansion, your attack, and your puzzle move.
-3. **Roles differed by numbers.** Here each role has a different *verb*. They are four
+3. **Roles differed by numbers.** Here each role has a different *verb*. They are five
    different games sharing one board.
 
 ## Hard requirements
@@ -71,7 +71,7 @@ attacking costs 2. Energy is the only number on screen.
 
 ---
 
-## The four roles — different VERBS, not different stats
+## The five roles — different VERBS, not different stats
 
 Each role's growth rule is genuinely a different game. Keep these ids.
 
@@ -88,7 +88,7 @@ design has failed again — say so rather than shipping it.
 ## Modes
 
 - **DUEL** — 1v1, first to win condition.
-- **GARDEN** — free-for-all, 3–4 players.
+- **GARDEN** — free-for-all, 2–5 players. Plants are drafted after the map is dealt, and are not exclusive.
 - **CO-OP vs THE BLIGHT** — 1–4 players against a spreading grey AI creeper that grows
   on its own rules and punishes disconnection. Kid-friendly PvE, and the tutorial lives
   in its first level.

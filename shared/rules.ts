@@ -1,22 +1,19 @@
 /**
- * BLOOM — client-side rule mirror.
+ * BLOOM — the rules. Geometry, role definitions, and tap legality.
  *
- * The server is authoritative for every outcome. This module exists so the client
- * can answer two *presentation* questions instantly, with no round trip:
+ * SHARED, and that is the whole point: the server imports this to decide what a
+ * tap actually did, and the client imports the SAME functions to light up the
+ * cells you may legally poke on touch-down. One implementation, so the highlight
+ * cannot disagree with the outcome.
  *
- *   1. "which cells may I legally poke right now?"  (the touch-down highlight,
- *      which is how a child learns the rule — by poking, not by reading)
- *   2. "what colour / shape / verb belongs to this role?"
- *
- * It is deliberately a mirror rather than a hard dependency on `@shared/board.ts`
- * and `@shared/roles.ts`: a wrong highlight is corrected by the next `match`
- * snapshot within one tick, so a divergence is cosmetic and self-healing, while a
- * missing module would take the whole client offline. When those shared modules
- * land, the three functions below become one-line re-exports.
+ * This used to be a client-side *mirror* of rules the server owned separately.
+ * That is a standing invitation to divergence — the highlight says yes, the server
+ * says no, and the player learns not to trust the game. Nothing in here touches
+ * the DOM or the socket, so both sides can hold it.
  */
 
-import type { Board, Cell, RoleDef, RoleId, Seat } from '@shared/bloom.js';
-import { BOARD_W, NEIGHBOURS } from '@shared/bloom.js';
+import type { Board, Cell, RoleDef, RoleId, Seat } from './bloom.js';
+import { BOARD_W, INSECT_DEFENCE, INSECT_FUNGAL_DEFENCE, INSECT_SPORE_DEFENCE, NEIGHBOURS, REPEL_COST, WOOD_DEFENCE, WOOD_THORN_DEFENCE } from './bloom.js';
 
 // ---------------------------------------------------------------- geometry
 
@@ -104,22 +101,41 @@ export const ROLE_LIST: RoleDef[] = [
     sporeLife: 9,
     hop: 5,
     rootsAnywhere: true,
+    ignoresBonds: true,
+    sunKills: true,
+    poisonImmune: true,
   },
   {
     id: 'fungal',
     name: 'FUNGAL',
-    blurb: 'creeps by itself, eats to feed',
+    blurb: 'eats to live — nothing else feeds it',
     colour: '#e8c15a',
     growTime: 1.4,
     captureTime: 1.4,
     growCost: 2,
-    attackCost: 1,
+    /*
+     * Eating is FREE, and it has to be: digestion is the fungus's ONLY income (see
+     * `stepEnergy`), so a mycelium that ran dry while priced out of the one action
+     * that earns would be dead on the board with no way back.
+     */
+    attackCost: 0,
     witherMul: 1,
     toughness: 1.2,
     reach: 1,
     blockSize: 1,
     remote: false,
     sporeLife: 0,
+    /*
+     * A fungus has no trunk to cut. Every mycelium tile is its own root, so the
+     * network never has to trace home and losing the seedling does not kill it —
+     * the same rule SPORE plays by, for the same reason.
+     */
+    rootsAnywhere: true,
+    /* Pays nobody's bonds, and collects nobody's — a mycelium braces nothing. */
+    ignoresBonds: true,
+    noBondDefence: true,
+    sunKills: true,
+    poisonImmune: true,
     creep: 2.6,
     digest: 2,
   },
@@ -156,12 +172,15 @@ export const SEAT_COLOURS = ['#3ddc6b', '#4da3ff', '#c46bff', '#ff5a3c', '#e8c15
 export function seatColour(seats: Seat[], seat: number): string {
   const s = seats[seat];
   if (s?.colour) return s.colour;
-  return SEAT_COLOURS[seat & 3];
+  // Modulo the real length, not `& 3` — that masked seat 4 back onto seat 0's
+  // colour, so a five-plant garden had two greens in any lobby preview that fell
+  // back to this before the server had assigned seats.
+  return SEAT_COLOURS[seat % SEAT_COLOURS.length];
 }
 
 // ---------------------------------------------------------------- legality
 
-export type TapKind = 'grow' | 'attack' | 'spore';
+export type TapKind = 'grow' | 'attack' | 'spore' | 'repel';
 
 /**
  * What would tapping `cell` do? `null` means nothing — the cell must not light up
@@ -177,12 +196,18 @@ export function legalTap(
   const c = cellAt(board, cell);
   if (!c) return null;
   if (c.kind === 'rock') return null;
+  // Sunlight is lethal to the rot-plants; they may not even reach for it.
+  if (c.kind === 'sun' && role.sunKills) return null;
   /*
-   * The seedling (home) IS conquerable now — it is just very slow to take. This is
-   * what gives an attack a point beyond attrition: crack someone's seedling and they
-   * are out, and every tile they own dies with them.
+   * An ENEMY seedling is conquerable — just very slow to take. That is what gives an
+   * attack a point beyond attrition: crack someone's seedling and they are out.
+   *
+   * YOUR OWN seedling is the one cell of yours you may tap, and doing so repels
+   * whoever is leaning on it — while it is off cooldown. See `REPEL_COST`.
    */
-  if (c.kind === 'home' && c.owner === seat) return null; // never your own
+  if (c.kind === 'home' && c.owner === seat) {
+    return (seats[seat]?.repelCooldown ?? 0) > 0 ? null : 'repel';
+  }
   if (c.owner === seat) return null; // already yours
 
   let touching = false;
@@ -274,12 +299,39 @@ export function lineFrom(board: Board, seat: number, cell: number, reach: number
   return null;
 }
 
+/**
+ * How much longer a tile takes to capture because of the ground it sits on.
+ *
+ * WOOD braces its holder, INSECT ground rots them, and both have an exception:
+ * THORN gets nothing from timber, and SPORE (whose larder the insect beds are) is
+ * untroubled by them, with FUNGAL only mildly bothered.
+ */
+export function terrainDefence(kind: Cell['kind'], owner: RoleDef | null): number {
+  if (kind === 'wood') return owner?.parasite ? WOOD_THORN_DEFENCE : WOOD_DEFENCE;
+  if (kind === 'insect') {
+    if (owner?.remote) return INSECT_SPORE_DEFENCE;
+    return owner?.digest ? INSECT_FUNGAL_DEFENCE : INSECT_DEFENCE;
+  }
+  return 1;
+}
+
 /** Energy a tap of this kind costs, for the client-side "can't afford" shake. */
 export function tapCost(role: RoleDef, kind: TapKind): number {
+  if (kind === 'repel') return REPEL_COST;
   return kind === 'attack' ? role.attackCost : role.growCost;
 }
 
-/** Every cell the local player could legally poke. Recomputed on touch-down. */
+/**
+ * Every cell the local player could legally poke. Recomputed on touch-down.
+ *
+ * Presentation only, which is why the "already being taken" filter lives here and
+ * NOT in `legalTap`: the simulation's liveness check asks `legalTap` whether a seat
+ * has any move left, and a seat whose only targets happen to be mid-claim — its own
+ * claims included — would be judged entombed and eliminated mid-tap.
+ *
+ * Lighting up a cell that is already filling in is a lie either way: the tap will be
+ * refused, and before that refusal existed it silently cost a full attack.
+ */
 export function legalCells(
   board: Board,
   seats: Seat[],
@@ -289,7 +341,20 @@ export function legalCells(
   const out = new Map<number, TapKind>();
   for (let i = 0; i < board.cells.length; i++) {
     const k = legalTap(board, seats, seat, role, i);
-    if (k) out.set(i, k);
+    if (!k) continue;
+    /*
+     * A cell already filling in is not tappable — EXCEPT your own seedling, where a
+     * claim in progress is precisely the reason to tap it. Hiding it then would take
+     * the repel away at the only moment it matters.
+     */
+    if (k !== 'repel' && isBeingTaken(board, i)) continue;
+    out.set(i, k);
   }
   return out;
+}
+
+/** Is a claim already filling this cell? Such a tap does nothing, for anyone. */
+export function isBeingTaken(board: Board, cell: number): boolean {
+  const c = cellAt(board, cell);
+  return !!c && c.claimant >= 0 && c.progress > 0;
 }

@@ -19,6 +19,14 @@ export const INK = {
   rockTop: '#868d91',
   sun: '#ffd23d',
   sunGlow: '#ffe98a',
+  /* The three larders. Each one is one faction's whole economy, so they have to be
+     told apart at a glance on a phone: warm timber, sickly green acid, pale grubs. */
+  wood: '#b5793a',
+  woodGlow: '#e0a367',
+  acid: '#9ee83d',
+  acidGlow: '#caff8a',
+  bug: '#d8d2b0',
+  bugGlow: '#f2eccc',
   /** The colour of death. Everything severed converges here. */
   ash: '#6d6f6d',
   ashDark: '#3a3d3b',

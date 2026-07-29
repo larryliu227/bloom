@@ -14,10 +14,11 @@
  */
 
 import type { Board, MatchState, RoleDef } from '@shared/bloom.js';
+import { TAKEOVER_SIZE } from '@shared/bloom.js';
 import { fitCanvas, hash01, roundRect } from '../ui/dom.js';
 import { INK, clamp01, darken, drained, ease, lighten, mix, rgba } from './palette.js';
-import { getRole, legalCells, legalTap, neighbours, seatColour, xy } from './rules.js';
-import type { TapKind } from './rules.js';
+import { getRole, isBeingTaken, legalCells, legalTap, neighbours, seatColour, xy } from '@shared/rules.js';
+import type { TapKind } from '@shared/rules.js';
 
 export interface BoardCallbacks {
   /** A committed tap. The caller sends it; the server decides what it meant. */
@@ -26,6 +27,12 @@ export interface BoardCallbacks {
   onSever(seat: number, count: number, mine: boolean): void;
   /** Poked something that is not a legal target. */
   onDeny(): void;
+  /**
+   * A tap while an item is armed. Bypasses legality entirely — HOSTILE TAKEOVER
+   * targets a 9x9 block wherever you point, and the centre of an enemy mat is not
+   * somewhere SPORE could legally grow, which is exactly where you want to aim it.
+   */
+  onArmedTap(cell: number): void;
 }
 
 /** Per-cell animation state. Purely cosmetic; the server owns the truth. */
@@ -83,6 +90,8 @@ export class BoardView {
   private optimistic = new Map<number, number>();
   private denyCell = -1;
   private denyT = 0;
+  /** An item is waiting for a target: taps go to `onArmedTap`, legality is skipped. */
+  private armed = false;
 
   constructor(cb: BoardCallbacks) {
     this.cb = cb;
@@ -101,6 +110,13 @@ export class BoardView {
     this.root.classList.remove('hidden');
   }
 
+  /** Arm or disarm targeting mode. While armed the board shows a footprint, not moves. */
+  setArmed(on: boolean): void {
+    this.armed = on;
+    this.root.classList.toggle('arming', on);
+    if (on) this.legal.clear();
+  }
+
   hide(): void {
     this.root.classList.add('hidden');
     this.endPress();
@@ -112,7 +128,8 @@ export class BoardView {
     const prev = this.state;
     this.mySeat = mySeat;
     const seat = next.seats[mySeat];
-    if (seat) this.role = getRole(seat.role);
+    // During the draft nobody has a plant yet, so there is no legality to preview.
+    if (seat?.role) this.role = getRole(seat.role);
 
     if (!prev || prev.board.cells.length !== next.board.cells.length) {
       this.anim = next.board.cells.map(() => ({ sever: -1, pop: 0, ghost: 0, ghostColour: INK.ash }));
@@ -161,6 +178,13 @@ export class BoardView {
       if (ev.t === 'severed') {
         this.fireSever(ev.seat, ev.count, ev.cause);
         cut.delete(ev.seat);
+      } else if (ev.t === 'repel') {
+        // A seedling shrugging off an assault is a moment; give it the same
+        // shockwave language as a cut, in the defender's colour.
+        this.shockwave.push({ cell: ev.cell, t: 0, colour: seatColour(next.seats, ev.seat) });
+        if (this.shockwave.length > 6) this.shockwave.shift();
+        this.flash = Math.max(this.flash, ev.seat === this.mySeat ? 0.5 : 0.25);
+        this.shake = Math.max(this.shake, 6);
       }
     }
     for (const [seat, list] of cut) {
@@ -182,20 +206,24 @@ export class BoardView {
   }
 
   /**
-   * BFS from every home over that seat's own tiles. Gives each fed tile its
+   * BFS from every seedling over that seat's own tiles. Gives each fed tile its
    * distance from the root, which is what makes the pulse *travel* outward
    * instead of blinking in unison — the board looks like it is being fed.
+   *
+   * Seeds from every owned `home` cell rather than from `board.homes`, matching
+   * the simulation exactly: a conquered seedling is a real root, so the zone around
+   * it has to be seen to pulse from itself. Rooted at the old owner's start cell,
+   * a captured zone drew as fed while pulsing from nowhere.
    */
   private recomputeDist(board: Board): void {
     if (this.dist.length !== board.cells.length) this.dist = new Int16Array(board.cells.length);
     this.dist.fill(-1);
     const queue: number[] = [];
-    for (const home of board.homes) {
-      if (home < 0 || home >= board.cells.length) continue;
-      const c = board.cells[home];
-      if (!c || c.owner < 0) continue;
-      this.dist[home] = 0;
-      queue.push(home);
+    for (let i = 0; i < board.cells.length; i++) {
+      const c = board.cells[i];
+      if (c.kind !== 'home' || c.owner < 0) continue;
+      this.dist[i] = 0;
+      queue.push(i);
     }
     for (let head = 0; head < queue.length; head++) {
       const i = queue[head];
@@ -237,6 +265,7 @@ export class BoardView {
     const b = state.board;
     if (gx < 0 || gy < 0 || gx >= b.w || gy >= b.h) return -1;
     const exact = gy * b.w + gx;
+    if (this.armed) return exact;
     if (this.legal.has(exact)) return exact;
     return this.snap(px, py, exact);
   }
@@ -284,7 +313,7 @@ export class BoardView {
     } catch {
       /* not fatal */
     }
-    this.recomputeLegal();
+    if (!this.armed) this.recomputeLegal();
     this.pressCell = this.cellFromEvent(e);
   }
 
@@ -302,10 +331,27 @@ export class BoardView {
     e.preventDefault();
     const cell = this.cellFromEvent(e);
     const s = this.state;
+    if (this.armed) {
+      if (cell >= 0) this.cb.onArmedTap(cell);
+      this.endPress();
+      return;
+    }
     const kind =
       s && this.mySeat >= 0 && cell >= 0
         ? legalTap(s.board, s.seats, this.mySeat, this.role, cell)
         : null;
+    /*
+     * A cell that is already filling in swallows the tap silently — no send, and no
+     * deny flash either. Tapping again at a bar you can watch moving is the most
+     * natural thing on a touchscreen, so it must not read as an error, and it must
+     * certainly not cost anything (it used to cost a full attack, server-side).
+     *
+     * A repel is exempt: your seedling being claimed is the whole reason to tap it.
+     */
+    if (cell >= 0 && s && kind !== 'repel' && isBeingTaken(s.board, cell)) {
+      this.endPress();
+      return;
+    }
     if (cell >= 0 && kind) {
       this.optimistic.set(cell, this.time);
       this.cb.onTap(cell, kind);
@@ -580,6 +626,9 @@ export class BoardView {
       }
 
       if (cell.kind === 'sun') this.drawSun(x, y, cell.owner >= 0);
+      else if (cell.kind === 'wood') this.drawWood(x, y, cell.owner >= 0);
+      else if (cell.kind === 'acid') this.drawAcid(x, y, cell.owner >= 0);
+      else if (cell.kind === 'insect') this.drawBugs(x, y, cell.owner >= 0);
       if (cell.kind === 'home') this.drawHome(x, y, s, cell.owner);
     }
   }
@@ -598,6 +647,66 @@ export class BoardView {
   }
 
   /** Sun: the only star on the board. Owning one feeds you faster. */
+  /**
+   * WOOD — stacked timber. Squared-off and static, so it reads as structure next to
+   * the sun's spin; it is the tile that BRACES whoever holds it.
+   */
+  private drawWood(x: number, y: number, owned: boolean): void {
+    const ctx = this.ctx;
+    const c = this.cell;
+    ctx.fillStyle = owned ? INK.woodGlow : INK.wood;
+    const w = c * 0.52;
+    const h = c * 0.17;
+    for (let k = 0; k < 3; k++) {
+      const off = (k % 2) * (c * 0.07);
+      roundRect(ctx, x + (c - w) / 2 + off - c * 0.03, y + c * 0.26 + k * (h + c * 0.04), w, h, 1);
+      ctx.fill();
+    }
+  }
+
+  /**
+   * ACID — a bubbling pit. The scarcest thing on the board and the only currency the
+   * tech tree takes, so it gets motion: it should catch your eye from across the map.
+   */
+  private drawAcid(x: number, y: number, owned: boolean): void {
+    const ctx = this.ctx;
+    const c = this.cell;
+    const cx = x + c / 2;
+    const cy = y + c / 2;
+    ctx.fillStyle = owned ? INK.acidGlow : INK.acid;
+    roundRect(ctx, cx - c * 0.28, cy - c * 0.16, c * 0.56, c * 0.32, 2);
+    ctx.fill();
+    // Bubbles, on a per-cell phase so a field of acid does not pulse in unison.
+    const seed = hash01(x * 31 + y * 17);
+    for (let k = 0; k < 3; k++) {
+      const t = (this.time * 0.9 + seed + k * 0.33) % 1;
+      const r = c * 0.05 * (1 - t * 0.5);
+      ctx.globalAlpha = 1 - t;
+      ctx.beginPath();
+      ctx.arc(cx + (k - 1) * c * 0.16, cy + c * 0.1 - t * c * 0.28, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * INSECT beds — a scatter of grubs. Deliberately restless and slightly unpleasant:
+   * this ground ROTS the defence of everyone standing on it except SPORE.
+   */
+  private drawBugs(x: number, y: number, owned: boolean): void {
+    const ctx = this.ctx;
+    const c = this.cell;
+    ctx.fillStyle = owned ? INK.bugGlow : INK.bug;
+    for (let k = 0; k < 4; k++) {
+      const seed = hash01(x * 13 + y * 7 + k * 101);
+      const wob = Math.sin(this.time * 2.2 + seed * 6.28) * c * 0.04;
+      const px = x + c * (0.24 + 0.5 * seed);
+      const py = y + c * (0.26 + 0.48 * ((seed * 7) % 1)) + wob;
+      roundRect(ctx, px - c * 0.07, py - c * 0.04, c * 0.14, c * 0.08, 2);
+      ctx.fill();
+    }
+  }
+
   private drawSun(x: number, y: number, owned: boolean): void {
     const ctx = this.ctx;
     const c = this.cell;
@@ -725,7 +834,32 @@ export class BoardView {
         ctx.fillStyle = rgba(tint, 0.12);
         ctx.fill();
       }
-      if (this.pressCell >= 0) {
+      if (this.armed && this.pressCell >= 0) {
+        // The block HOSTILE TAKEOVER would clear, clamped to the board exactly as
+        // the simulation clamps it. You must be able to see a 9x9 before you spend.
+        const half = Math.floor(TAKEOVER_SIZE / 2);
+        const p = xy(this.pressCell, board.w);
+        const x0 = Math.max(0, p.x - half);
+        const y0 = Math.max(0, p.y - half);
+        const x1 = Math.min(board.w - 1, p.x + half);
+        const y1 = Math.min(board.h - 1, p.y + half);
+        ctx.fillStyle = rgba(INK.acid, 0.16);
+        ctx.fillRect(
+          this.ox + x0 * this.cell,
+          this.oy + y0 * this.cell,
+          (x1 - x0 + 1) * this.cell,
+          (y1 - y0 + 1) * this.cell,
+        );
+        ctx.strokeStyle = rgba(INK.acid, 0.9);
+        ctx.lineWidth = Math.max(2, this.cell * 0.1);
+        ctx.strokeRect(
+          this.ox + x0 * this.cell + 1,
+          this.oy + y0 * this.cell + 1,
+          (x1 - x0 + 1) * this.cell - 2,
+          (y1 - y0 + 1) * this.cell - 2,
+        );
+      }
+      if (!this.armed && this.pressCell >= 0) {
         const p = xy(this.pressCell, board.w);
         const kind = this.legal.get(this.pressCell);
         const tint = kind === 'attack' ? '#ff5a3c' : kind === 'spore' ? '#c46bff' : '#ffffff';
