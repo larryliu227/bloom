@@ -18,11 +18,11 @@
  * inputs, so `rng` divergence between two machines is harmless by construction.
  */
 
-import type { Board, Cell, GameMode, MapKind, MatchState, RoleDef, RoleId, Seat, TechId } from './bloom.js';
-import { BOARD_H, BOARD_W, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, REPEL_RADIUS, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL } from './bloom.js';
+import type { Board, Cell, GameMode, MapKind, MatchState, Net, RoleDef, RoleId, Seat, TechDef, TechId } from './bloom.js';
+import { BOARD_H, BOARD_W, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KILL_COST, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
 import type { BloomEvent } from './bloom.js';
 import { makeRng } from './math.js';
-import { ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, terrainDefence, xy } from './rules.js';
+import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelCost, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
 
 /** One competitor. The server fills these from its lobby; solo play fabricates them. */
 export interface GardenSeat {
@@ -41,7 +41,19 @@ export interface GardenOpts {
 }
 
 function blank(kind: Cell['kind'] = 'soil'): Cell {
-  return { kind, owner: -1, progress: 0, claimant: -1, wither: 0, connected: false, spore: 0 };
+  return {
+    kind,
+    owner: -1,
+    progress: 0,
+    claimant: -1,
+    wither: 0,
+    connected: false,
+    spore: 0,
+    net: -1,
+    store: 0,
+    fuel: 0,
+    dist: -1,
+  };
 }
 
 /**
@@ -138,17 +150,21 @@ interface MapSpec {
 /**
  * Resource counts per archetype.
  *
- * ACID is the scarcest thing on any board, because it is the only currency the tech
- * tree takes: three or four cells decide who gets to upgrade at all, which is a
- * fight worth having. SUN, WOOD and INSECT are each one faction's larder — a map
- * short on wood is a map where FUNGAL starves, and reading that is exactly what the
- * draft is for.
+ * ACID is the scarcest thing on any board, because it is the deepest of the three
+ * purses the tech tree takes: a handful of cells decide who gets the expensive half
+ * of their list, which is a fight worth having. SUN, WOOD and INSECT are each one
+ * faction's larder as well as a purse — a map short on wood is a map where FUNGAL
+ * starves, and reading that is exactly what the draft is for.
+ *
+ * Every count here is scaled to the board (308 cells, up from 216): a bigger garden
+ * with the old counts is a thinner garden, and thin boards make every faction play
+ * the same way — spread out and never fight.
  */
 const MAP_SPECS: Record<MapKind, MapSpec> = {
-  open: { walls: 1, wallLen: [4, 7], stubs: 3, pillars: 4, suns: [4, 6], wood: [3, 5], insect: [3, 5], acid: [3, 4] },
-  walled: { walls: 5, wallLen: [5, 9], stubs: 2, pillars: 2, suns: [3, 5], wood: [3, 5], insect: [3, 4], acid: [3, 4] },
-  warren: { walls: 2, wallLen: [3, 4], stubs: 14, pillars: 6, suns: [4, 7], wood: [4, 6], insect: [5, 7], acid: [3, 5] },
-  pillars: { walls: 0, wallLen: [0, 0], stubs: 4, pillars: 18, suns: [4, 6], wood: [3, 4], insect: [4, 5], acid: [3, 4] },
+  open: { walls: 2, wallLen: [5, 9], stubs: 4, pillars: 6, suns: [5, 8], wood: [4, 7], insect: [4, 7], acid: [4, 6] },
+  walled: { walls: 7, wallLen: [6, 11], stubs: 3, pillars: 3, suns: [4, 7], wood: [4, 7], insect: [4, 6], acid: [4, 6] },
+  warren: { walls: 3, wallLen: [3, 5], stubs: 20, pillars: 9, suns: [6, 10], wood: [6, 8], insect: [7, 10], acid: [4, 7] },
+  pillars: { walls: 0, wallLen: [0, 0], stubs: 6, pillars: 26, suns: [5, 8], wood: [4, 6], insect: [5, 7], acid: [4, 6] },
 };
 
 function inside(x: number, y: number): boolean {
@@ -282,6 +298,8 @@ export class Garden {
   private creepClock: number[] = [];
   private nextInsect = 1;
   private opts: GardenOpts;
+  /** Cell indices per network, parallel to `board.nets`. Rebuilt by `buildNets`. */
+  private netCells: number[][] = [];
   /**
    * Standing pact offers, as `allyKey` values, per seat. A pact needs BOTH sides,
    * which is why offers are tracked separately from `state.allies`.
@@ -329,6 +347,10 @@ export class Garden {
       // `carveMap` already stamped the seedling and cleared its breathing ring.
       c.owner = s;
       c.connected = true;
+      // Every seedling is born with a granary, and it is the one you start playing
+      // out of. Everything else you want to spend from, you build.
+      c.store = 1;
+      c.fuel = START_ENERGY;
       const spec = this.opts.seats[s];
       const role = spec.role ? getRole(spec.role) : null;
       seats.push({
@@ -346,19 +368,22 @@ export class Garden {
          */
         colour: SEAT_COLOURS[s % SEAT_COLOURS.length],
         energy: START_ENERGY,
+        cap: STORE_CAP,
         tiles: 1,
         alive: true,
         connected: true,
         isBot: spec.isBot,
         techs: [],
         acid: 0,
+        sun: 0,
+        wood: 0,
         repelCooldown: 0,
       });
       this.botClock.push(0.4 + this.rng() * 0.8);
       this.offers.push(new Set());
     }
 
-    const board: Board = { w: BOARD_W, h: BOARD_H, cells, homes, kind };
+    const board: Board = { w: BOARD_W, h: BOARD_H, cells, homes, kind, nets: [] };
     /*
      * If anybody arrived without a plant the match opens in `draft`: the board
      * exists, everyone can see it and their own seedling, and nothing is simulated
@@ -386,7 +411,20 @@ export class Garden {
   /** Techs owned, per seat. Bought once each, permanent for the match. */
   readonly tech: Set<TechId>[] = [];
 
-  /** Buy an upgrade. Returns false if already owned or too poor. */
+  /**
+   * Buy an upgrade.
+   *
+   * TWO requirements, and there is deliberately nothing else: **be alive, and have
+   * the money.** No prerequisites, no chains, no order — if it is on your list and
+   * your purse covers it, it is yours, and a tier-4 card is a legal first purchase
+   * for anyone who somehow banked for it.
+   *
+   * The remaining checks are not gates on progress, they are the same "this card
+   * cannot exist for you" filter the panel applies (`techsFor`): another faction's
+   * card, or one that provably does nothing for your plant. Enforced in the MODEL
+   * rather than by hiding a button, because bots and remote clients both come
+   * through here and a hidden button is not a rule.
+   */
   buyTech(seat: number, id: TechId): boolean {
     const s = this.state;
     const me = s.seats[seat];
@@ -395,13 +433,11 @@ export class Garden {
     if (!def) return false;
     const owned = this.techFor(seat);
     if (owned.has(id)) return false;
-    // Enforce the tree in the MODEL, not just the UI. A hidden button is not a
-    // rule — bots and remote clients both come through here.
-    if (def.requires && !owned.has(def.requires)) return false;
     if (def.role && def.role !== me.role) return false;
-    // Tech is bought with ACID and nothing else — see `Seat.acid`.
-    if (me.acid < def.cost) return false;
-    me.acid -= def.cost;
+    if (me.role && def.notFor?.includes(me.role)) return false;
+    // Paid out of the purse the card is priced in — acid, sunlight or timber.
+    if (me[def.currency] < def.cost) return false;
+    me[def.currency] -= def.cost;
     owned.add(id);
     // Mirror onto the seat so it rides the snapshot to every client.
     me.techs = [...owned];
@@ -521,43 +557,54 @@ export class Garden {
     if (owned.size === 0) return base;
     const r: RoleDef = { ...base };
 
-    // --- shared roots
+    // --- shared
     if (owned.has('surge')) {
       r.growTime *= TECH_GROW_SPEED;
       r.captureTime *= TECH_GROW_SPEED;
     }
     if (owned.has('deeproot')) r.witherMul *= TECH_WITHER_MUL;
+    if (owned.has('sprig')) r.growCost = Math.max(1, r.growCost - 1);
+    if (owned.has('sap')) r.attackCost = Math.max(0, r.attackCost - 1);
+    if (owned.has('husk')) r.toughness *= TECH_HUSK_TOUGH;
+    // 'dew', 'veins' are income; 'rain' is night pacing; 'bulwark' and 'reflex' are
+    // defence — all handled where they happen, not as stats.
 
-    // --- VINE: distance, forking into tough runners or very long ones
+    // --- VINE: distance, and one card that turns a runner into a weapon
     if (owned.has('whip')) r.reach += 2;
     if (owned.has('lash')) r.growCost = Math.max(1, r.growCost - 1);
     if (owned.has('canopy')) r.growTime *= 0.45;
     if (owned.has('thicket')) r.toughness *= 2;
     if (owned.has('lightning')) r.reach += 3;
+    if (owned.has('trellis')) r.witherMul *= TECH_TRELLIS_WITHER;
+    // 'rend' is a footprint rule — see `footprint`.
 
-    // --- MOSS: bulk, forking into armour or permanence
+    // --- MOSS: bulk, armour, permanence
     if (owned.has('carpet')) r.blockSize += 1;
+    if (owned.has('cushion')) r.growCost = Math.max(1, r.growCost - 1);
     if (owned.has('bark')) r.toughness *= TECH_BARK_TOUGH;
     if (owned.has('bog')) r.witherMul = 0.05; // effectively never rots
     // 'rampart' is paid by the ATTACKER — see `costOf` and the bond slow in stepClaims.
-    // 'peat' is income — see `stepEnergy`.
+    // 'peat' is income; 'stonemoss' is read by `hostileTakeover`.
 
-    // --- SPORE: reach, forking into range or spread
+    // --- SPORE: reach, spread, and a wider poison
     if (owned.has('drift')) { r.sporeLife += 6; r.hop = (r.hop ?? 4) + 3; }
     if (owned.has('pod')) r.growCost = Math.max(1, r.growCost - 2);
     if (owned.has('gale')) r.hop = (r.hop ?? 4) + 4;
-    // 'burst' and 'bloomburst' are handled at landing time, not as stats.
+    if (owned.has('windborne')) r.toughness *= TECH_WINDBORNE_TOUGH;
+    // 'burst' and 'bloomburst' are handled at landing time; 'blight' in `hostileTakeover`.
 
-    // --- FUNGAL: digestion, forking into the swarm or the rot
+    // --- FUNGAL: digestion, the swarm, the rot
     if (owned.has('mycelium') && r.creep) r.creep *= 0.5;
     if (owned.has('enzyme') && r.digest) r.digest += TECH_ENZYME_BONUS;
     if (owned.has('rot') && r.creep) r.creep *= 0.5;
-    // 'bloomcap' is handled at capture time; 'hive' in `hatchInsect`.
+    if (owned.has('putrefy')) r.captureTime *= TECH_PUTREFY_CAPTURE;
+    // 'bloomcap' is handled at capture time; 'hive' and 'spawnsac' in `hatchInsect`.
 
-    // --- THORN: contact, forking into cheap bites or wide ones
+    // --- THORN: contact, cheap bites, wide ones
     if (owned.has('barbs')) r.captureTime *= 0.5;
     if (owned.has('venom')) r.attackCost = Math.max(0, r.attackCost - 1);
-    // 'feed', 'swarm' and 'bramble' are handled at capture time.
+    if (owned.has('spike')) r.toughness *= TECH_SPIKE_TOUGH;
+    // 'feed', 'gorge', 'swarm' and 'bramble' are handled at capture time.
 
     return r;
   }
@@ -571,65 +618,97 @@ export class Garden {
   }
 
   /**
-   * Shake an assault off your seedling.
+   * DEFEND — burn the enemy off the ground around one of your tiles.
    *
-   * Two things happen, both hostile-only (an ally leaning on your base is not
-   * leaning on it):
+   * Both halves are hostile-only (an ally leaning on your base is not leaning on it),
+   * and both are computed by `repelHits`, which the renderer also calls to decide
+   * what to light up. One rule, one answer, no drift.
    *
-   *  1. Every enemy claim in progress within REPEL_RADIUS is knocked BACK by
-   *     REPEL_KNOCKBACK — not cancelled. The attacker keeps the cell if any progress
-   *     survives, and simply carries on; they do not even have to tap again. See
-   *     REPEL_COST for why the attacker is meant to win this exchange on time.
-   *  2. Enemy tiles standing directly on the seedling are shoved back to bare soil.
-   *     Bare, not yours — a repel is a shove, not a free harvest.
+   *  1. Enemy TILES inside the kill ring are destroyed — back to bare soil, not to
+   *     you. A defence denies ground; it does not harvest it.
+   *  2. Enemy CLAIMS in the wider ring are knocked BACK by REPEL_KNOCKBACK, not
+   *     cancelled. The attacker keeps the cell if any progress survives and simply
+   *     carries on. See REPEL_COST for why the attacker is meant to win a siege on
+   *     time even against a defender who never misses a cooldown.
+   *
+   * The energy budget is a real constraint: burning tiles is priced per tile, so a
+   * poor defender clears the NEAREST ones they can afford rather than being refused
+   * outright — the tiles on your doorstep are the ones you meant anyway.
    *
    * Then the seat goes on cooldown, which is the real limit: energy is uncapped, so
-   * without one a rich defender could repel on every tick and be invulnerable.
+   * without one a rich defender could clear their whole border every tick.
    *
-   * Returns false when there was nothing to push, and the caller then charges
-   * nothing. Mashing your own base is pointless rather than ruinous.
+   * Returns the energy spent, or 0 when there was nothing to push — mashing a tile
+   * in open ground is pointless rather than ruinous, and starts no cooldown.
    */
-  private repel(seat: number, cell: number): boolean {
+  private repel(seat: number, cell: number): number {
     const s = this.state;
+    const me = s.seats[seat];
+    if (!me) return 0;
+    const hits = repelHits(s.board, s.allies, seat, cell, repelBonus(me));
+    if (hits.kill.length === 0 && hits.knock.length === 0) return 0;
+
+    // Nearest first, so a partial budget buys the tiles actually on top of you.
     const p = xy(cell);
-    let pushed = 0;
-
-    for (let i = 0; i < s.board.cells.length; i++) {
-      const c = s.board.cells[i];
-      if (c.claimant < 0 || c.progress <= 0) continue;
-      if (c.claimant === seat || isAllied(s.allies, seat, c.claimant)) continue;
+    const dist = (i: number) => {
       const q = xy(i);
-      if (Math.abs(q.x - p.x) + Math.abs(q.y - p.y) > REPEL_RADIUS) continue;
-      c.progress -= REPEL_KNOCKBACK;
-      // Only a claim knocked all the way to nothing actually breaks off.
-      if (c.progress <= 0) {
-        c.progress = 0;
-        c.claimant = -1;
-      }
-      pushed++;
-    }
+      return Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
+    };
+    const kills = [...hits.kill].sort((a, b) => dist(a) - dist(b));
+    /*
+     * Defence is paid by the network being defended, at ITS supply cost. Holding a
+     * far-flung outpost is expensive to defend as well as to take ground with, and a
+     * pocket cut off from your barns fights on whatever it managed to store.
+     */
+    const here = s.board.cells[cell];
+    const net = here.net;
+    const mul = supplyMul(here.dist < 0 ? FAR_FROM_STORE : here.dist);
+    const fuel = s.board.nets[net]?.fuel ?? 0;
+    const budget = Math.max(
+      0,
+      Math.floor((fuel - REPEL_COST * mul) / Math.max(0.01, REPEL_KILL_COST * mul)),
+    );
+    const burn = kills.slice(0, budget);
 
-    for (const n of neighbours(s.board, cell)) {
-      const c = s.board.cells[n];
-      if (c.owner < 0 || c.owner === seat) continue;
-      if (isAllied(s.allies, seat, c.owner)) continue;
-      // Never dissolve a seedling — a conquered heart next door is taken, not shoved.
-      if (c.kind === 'home') continue;
+    for (const i of burn) {
+      const c = s.board.cells[i];
       const from = c.owner;
       c.owner = -1;
       c.claimant = -1;
       c.progress = 0;
       c.wither = 0;
       c.spore = 0;
-      this.emit({ t: 'withered', cell: n, seat: from });
-      pushed++;
+      // A granary caught in the blast burns with everything in it. Defence destroys;
+      // only a capture loots (see `loot`).
+      c.store = 0;
+      c.fuel = 0;
+      this.emit({ t: 'withered', cell: i, seat: from });
+    }
+    let knocked = 0;
+    for (const i of hits.knock) {
+      const c = s.board.cells[i];
+      if (c.claimant < 0) continue; // already cleared by the burn above
+      c.progress -= REPEL_KNOCKBACK;
+      // Only a claim knocked all the way to nothing actually breaks off.
+      if (c.progress <= 0) {
+        c.progress = 0;
+        c.claimant = -1;
+      }
+      knocked++;
     }
 
-    if (pushed === 0) return false;
-    const me = s.seats[seat];
-    if (me) me.repelCooldown = REPEL_COOLDOWN;
+    const pushed = burn.length + knocked;
+    if (pushed === 0) {
+      // There WAS something to burn and the budget did not stretch to one tile of
+      // it. Say so, or the tap reads as the defence being broken rather than skint.
+      if (hits.kill.length > 0) this.emit({ t: 'denied', cell, seat, reason: 'energy' });
+      return 0;
+    }
+    me.repelCooldown = REPEL_COOLDOWN * (this.techFor(seat).has('reflex') ? TECH_REFLEX_COOLDOWN : 1);
     this.emit({ t: 'repel', cell, seat, count: pushed });
-    return true;
+    const spent = repelCost(burn.length) * mul;
+    this.spend(net, Math.min(spent, fuel), cell);
+    return spent;
   }
 
   tap(seat: number, cell: number): boolean {
@@ -640,19 +719,21 @@ export class Garden {
     if (!kind) return false;
 
     /*
-     * Repel is handled first, ahead of every guard below, and that ordering is the
+     * Defence is handled first, ahead of every guard below, and that ordering is the
      * whole feature: the guard that refuses a cell somebody else is mid-claim on
-     * would otherwise block a repel in exactly the situation it exists for — your
+     * would otherwise block a defence in exactly the situation it exists for — your
      * seedling with an enemy six seconds into taking it.
      */
     if (kind === 'repel') {
-      if (s.seats[seat].energy < REPEL_COST) {
+      const here = s.board.cells[cell];
+      const mul = supplyMul(here.dist < 0 ? FAR_FROM_STORE : here.dist);
+      if ((s.board.nets[here.net]?.fuel ?? 0) < REPEL_COST * mul) {
         this.emit({ t: 'denied', cell, seat, reason: 'energy' });
         return false;
       }
-      if (!this.repel(seat, cell)) return false; // nothing to push — costs nothing
-      s.seats[seat].energy -= REPEL_COST;
-      return true;
+      // `repel` charges the network itself: what it can afford decides how much of
+      // the ring it actually burns.
+      return this.repel(seat, cell) > 0;
     }
 
     // You cannot eat an ally.
@@ -692,12 +773,22 @@ export class Garden {
     });
     if (targets.length === 0) return false; // already under way — costs nothing
 
-    const cost = kind === 'attack' ? this.costOf(seat, cell) : role.growCost;
-    if (s.seats[seat].energy < cost) {
+    /*
+     * Who pays, and how far they are having to reach.
+     *
+     * The bill goes to the NETWORK that borders the tile, not to some seat-wide pot,
+     * and it is inflated by the distance from that network's nearest granary. A push
+     * far from your stores is expensive; the fix is to build one closer, which is the
+     * whole logistics layer in one line.
+     */
+    const from = this.supply(seat, cell);
+    if (from.net < 0) return false;
+    const cost = this.costOf(seat, cell);
+    if ((s.board.nets[from.net]?.fuel ?? 0) < cost) {
       this.emit({ t: 'denied', cell, seat, reason: 'energy' });
       return false;
     }
-    s.seats[seat].energy -= cost;
+    this.spend(from.net, cost, cell);
     for (const i of targets) {
       const c = s.board.cells[i];
       c.claimant = seat;
@@ -714,8 +805,14 @@ export class Garden {
   private footprint(seat: number, cell: number, kind: string): number[] {
     const s = this.state;
     const role = this.effectiveRole(seat);
+    const owned = this.techFor(seat);
     const out = [cell];
-    if (role.reach > 1 && kind === 'grow') {
+    /*
+     * REND lets a runner keep going through enemy ground instead of stopping at the
+     * tile you tapped. It is VINE's most expensive card because it is the only one
+     * that turns the faction's growth verb into an attack verb.
+     */
+    if (role.reach > 1 && (kind === 'grow' || (kind === 'attack' && owned.has('rend')))) {
       // Continue in the direction the growth came from — a vine RUNS.
       const from = this.supportDir(seat, cell);
       let cur = cell;
@@ -731,20 +828,29 @@ export class Garden {
         cur = ni;
       }
     }
+    /*
+     * MOSS lays a square patch. Sized off `blockSize` rather than a hard-coded 2x2,
+     * which is what CARPET ("claim a bigger patch") has always claimed to do and
+     * never did — the old loop listed the three offsets of a 2x2 literally, so the
+     * upgrade raised a number nothing read.
+     */
     if (role.blockSize > 1) {
       const p = xy(cell);
-      for (const [dx, dy] of [
-        [1, 0],
-        [0, 1],
-        [1, 1],
-      ]) {
-        const nx = p.x + dx;
-        const ny = p.y + dy;
-        if (nx >= BOARD_W || ny >= BOARD_H) continue;
-        const ni = idx(nx, ny);
-        const c = s.board.cells[ni];
-        if (c.kind === 'rock' || c.kind === 'home' || c.owner === seat) continue;
-        out.push(ni);
+      for (let dy = 0; dy < role.blockSize; dy++) {
+        for (let dx = 0; dx < role.blockSize; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = p.x + dx;
+          const ny = p.y + dy;
+          if (nx >= BOARD_W || ny >= BOARD_H) continue;
+          const ni = idx(nx, ny);
+          const c = s.board.cells[ni];
+          if (c.kind === 'rock' || c.kind === 'home' || c.owner === seat) continue;
+          // A patch PLANTS. Only an attack tap — which is priced as one — takes
+          // enemy ground, otherwise a bigger carpet would be a bulk steal at the
+          // price of a single seed.
+          if (kind !== 'attack' && c.owner >= 0) continue;
+          out.push(ni);
+        }
       }
     }
     return out;
@@ -775,6 +881,15 @@ export class Garden {
     s.clock += dt;
 
     this.stepBlight();
+    /*
+     * Networks first, and again after claims settle.
+     *
+     * The economy is computed per network, so income cannot be paid until this tick
+     * knows who is connected to what — and the snapshot has to ship the state AFTER
+     * captures, so it runs a second time below. Two floods over 308 cells is nothing
+     * next to getting the ledger wrong for a tick.
+     */
+    this.connectivity();
     this.stepEnergy(dt);
     for (const seat of s.seats) {
       if (seat.repelCooldown > 0) seat.repelCooldown = Math.max(0, seat.repelCooldown - dt);
@@ -805,33 +920,71 @@ export class Garden {
    */
   private stepEnergy(dt: number): void {
     const s = this.state;
-    const held: Array<Record<string, number>> = s.seats.map(() => ({ sun: 0, wood: 0, insect: 0, acid: 0 }));
+    /*
+     * Two ledgers, and they are deliberately different shapes.
+     *
+     * The three tech purses are the SEAT's: they are banked knowledge, not something
+     * you keep in a barn, so every tile you hold anywhere pays into them.
+     *
+     * Energy is the NETWORK's. Every clump earns from the ground it personally holds
+     * and pours it into its own granaries — so a garden cut in half runs two
+     * economies, and the half that lost the acid pool is poor even though "you" are
+     * not. `held` is therefore indexed by net, not by seat.
+     */
+    const held: Array<Record<string, number>> = s.board.nets.map(() => ({ sun: 0, wood: 0, insect: 0, acid: 0 }));
+    const seatHeld: Array<Record<string, number>> = s.seats.map(() => ({ sun: 0, wood: 0, insect: 0, acid: 0 }));
     for (const c of s.board.cells) {
-      if (c.owner < 0 || !c.connected) continue;
-      const bucket = held[c.owner];
+      if (c.owner < 0) continue;
+      const bucket = held[c.net];
       if (bucket && c.kind in bucket) bucket[c.kind] += 1;
+      const seatBucket = seatHeld[c.owner];
+      if (seatBucket && c.kind in seatBucket) seatBucket[c.kind] += 1;
     }
 
     const day = isDay(s.clock);
+    // --- the seat ledger: the three tech purses, paid by every tile you hold.
     for (const seat of s.seats) {
       if (!seat.alive) continue;
       const owned = this.techFor(seat.seat);
-      const mine = held[seat.seat] ?? { sun: 0, wood: 0, insect: 0, acid: 0 };
+      const mine = seatHeld[seat.seat] ?? { sun: 0, wood: 0, insect: 0, acid: 0 };
+      seat.acid += ACID_PER_SEC * mine.acid * (owned.has('veins') ? TECH_VEINS_MUL : 1) * dt;
+      seat.wood += WOOD_BANK_PER_SEC * mine.wood * dt;
+      // Sunlight banks in daylight only — ZENITH is what keeps the panels running.
+      if (day || owned.has('zenith')) {
+        seat.sun += SUN_BANK_PER_SEC * mine.sun * (day ? 1 : TECH_ZENITH_NIGHT) * dt;
+      }
+    }
 
-      // Acid is universal, and it is the whole tech economy.
-      seat.acid += ACID_PER_SEC * mine.acid * dt;
+    // --- the network ledger: energy, earned and stored where it was earned.
+    for (let n = 0; n < s.board.nets.length; n++) {
+      const net = s.board.nets[n];
+      const seat = s.seats[net.owner];
+      if (!seat?.alive) continue;
+      /*
+       * A network with nowhere to put anything earns nothing.
+       *
+       * This is the pressure the whole storage rule exists for: full granaries stop
+       * your income dead, so you either spend or you build. A clump with no store at
+       * all is therefore not just poor, it is inert — which is exactly what a limb
+       * cut off from your barns should be.
+       */
+      if (net.cap - net.fuel <= 0) continue;
+      const owned = this.techFor(net.owner);
+      const mine = held[n] ?? { sun: 0, wood: 0, insect: 0, acid: 0 };
+      const role = this.effectiveRole(net.owner);
 
-      const role = this.effectiveRole(seat.seat);
       if (role.digest) {
         // FUNGAL: timber and what it eats. Nothing else.
-        seat.energy += WOOD_ENERGY_PER_SEC * mine.wood * dt;
+        this.deposit(n, WOOD_ENERGY_PER_SEC * mine.wood * dt);
         continue;
       }
       if (role.remote) {
         // SPORE: the insect beds and nothing else — plus a bare drift while it holds
         // none at all, so being broke is never permanent. See SPORE_DRIFT_PER_SEC.
-        seat.energy +=
-          (mine.insect > 0 ? INSECT_ENERGY_PER_SEC * mine.insect : SPORE_DRIFT_PER_SEC) * dt;
+        this.deposit(
+          n,
+          (mine.insect > 0 ? INSECT_ENERGY_PER_SEC * mine.insect : SPORE_DRIFT_PER_SEC) * dt,
+        );
         continue;
       }
 
@@ -842,14 +995,21 @@ export class Garden {
         : owned.has('zenith')
           ? sunYield * TECH_ZENITH_NIGHT
           : 0;
-      // Territory is an economy: every tile you hold funds the next one.
+      // Territory is an economy: every tile in THIS network funds the next one.
       const perTile =
         ENERGY_PER_TILE +
         (owned.has('compost') ? TECH_COMPOST_TILE : 0) +
         (owned.has('peat') ? TECH_PEAT_TILE : 0);
-      seat.energy +=
-        (ENERGY_PER_SEC + sunRate * mine.sun + perTile * seat.tiles) * dt;
+      /*
+       * The flat trickle is paid ONCE per garden, to the network holding a seedling
+       * — it is the plant itself breathing, not a property of ground. Paying it to
+       * every clump would turn deliberately splitting yourself into an income
+       * strategy, which is the exact opposite of what a cut is meant to mean.
+       */
+      const trickle = net.live ? ENERGY_PER_SEC + (owned.has('dew') ? TECH_DEW_ENERGY : 0) : 0;
+      this.deposit(n, (trickle + sunRate * mine.sun + perTile * net.tiles) * dt);
     }
+    this.syncPurses();
   }
 
   /**
@@ -871,6 +1031,8 @@ export class Garden {
         c.owner = -1;
         c.wither = 0;
         c.spore = 0;
+        c.store = 0;
+        c.fuel = 0;
       }
       if (c.claimant >= 0 && this.roleOf(c.claimant).sunKills) {
         c.claimant = -1;
@@ -912,7 +1074,9 @@ export class Garden {
         contested && !role.ignoresBonds
           ? this.bondsOf(i) * BOND_TIME * (defTech?.has('rampart') ? TECH_RAMPART_BOND : 1)
           : 0;
-      const nightMul = night && !role.creep ? NIGHT_GROW_MUL : 1;
+      // RAIN buys a plant its nights back: the dark stops slowing it down.
+      const nightMul =
+        night && !role.creep && !this.techFor(c.claimant).has('rain') ? NIGHT_GROW_MUL : 1;
       const dur =
         (c.kind === 'home'
           ? HOME_CAPTURE_TIME *
@@ -931,6 +1095,7 @@ export class Garden {
         c.spore = 0;
         if (from >= 0) {
           this.emit({ t: 'captured', cell: i, seat: c.owner, from });
+          this.loot(i, c.owner, from);
           /*
            * THORN's verb: eating spreads it sideways. A completed capture infects
            * every neutral cell around it, for free.
@@ -943,10 +1108,11 @@ export class Garden {
            */
           const owned = this.techFor(c.owner);
           const eater = this.effectiveRole(c.owner);
-          // FUNGAL digests what it eats — that is how it pays for anything.
+          // FUNGAL digests what it eats — that is how it pays for anything. The meal
+          // goes into the granaries of the network that ate it, like all income.
           if (eater.digest) {
             const bite = eater.digest + (isDay(s.clock) ? 0 : NIGHT_DIGEST_BONUS);
-            s.seats[c.owner].energy += bite;
+            this.feedFrom(i, bite);
             if (owned.has('bloomcap')) this.creepFrom(i, c.owner);
           }
           /*
@@ -966,9 +1132,11 @@ export class Garden {
               this.emit({ t: 'eliminated', seat: from });
             }
           }
-          if (owned.has('feed')) {
-            s.seats[c.owner].energy += TECH_FEED_ENERGY;
-          }
+          // What a bite is worth. FEED makes eating pay; GORGE makes it a meal, and
+          // they stack — with no prerequisites the pair is a choice, not a chain.
+          const meal =
+            (owned.has('feed') ? TECH_FEED_ENERGY : 0) + (owned.has('gorge') ? TECH_GORGE_ENERGY : 0);
+          if (meal > 0) this.feedFrom(i, meal);
           if (this.effectiveRole(c.owner).parasite) {
             // SWARM pushes the infection a ring further; BRAMBLE another one again.
             this.infect(i, c.owner, this.infectDepth(c.owner));
@@ -1049,13 +1217,20 @@ export class Garden {
     return n;
   }
 
-  /** Energy a tap on `cell` would cost this seat, bonds included. */
+  /**
+   * Energy a tap on `cell` would cost this seat: bonds, then the supply line.
+   *
+   * Distance is the last multiplier applied, deliberately — it scales the whole
+   * bill, so a heavily bonded tile at the end of a long reach is brutal and the same
+   * tile taken from a granary next door is ordinary. That IS the logistics decision.
+   */
   costOf(seat: number, cell: number): number {
     const role = this.effectiveRole(seat);
     const c = this.state.board.cells[cell];
     if (!c) return 0;
     const contested = c.owner >= 0 && c.owner !== seat;
-    if (!contested) return role.growCost;
+    let base: number;
+    if (!contested) base = role.growCost;
     /*
      * SPORE and FUNGAL are not charged for bonds at all — see `ignoresBonds`.
      *
@@ -1064,10 +1239,16 @@ export class Garden {
      * well-bonded to afford, unable to act again or ever earn another point.
      * Measured — it happened on the first test board.
      */
-    if (role.ignoresBonds) return role.attackCost;
-    // RAMPART is the defender's tech: it is the attacker who feels it.
-    const bond = BOND_COST * (this.techFor(c.owner).has('rampart') ? TECH_RAMPART_BOND : 1);
-    return Math.round(role.attackCost + this.bondsOf(cell) * bond);
+    else if (role.ignoresBonds) base = role.attackCost;
+    else {
+      // RAMPART is the defender's tech: it is the attacker who feels it.
+      const bond = BOND_COST * (this.techFor(c.owner).has('rampart') ? TECH_RAMPART_BOND : 1);
+      base = role.attackCost + this.bondsOf(cell) * bond;
+    }
+    // Free stays free. FUNGAL's bite is priced at nothing on purpose, and a supply
+    // multiplier on zero must not quietly become one.
+    if (base <= 0) return 0;
+    return Math.max(1, Math.round(base * supplyMul(this.supply(seat, cell).dist)));
   }
 
   /**
@@ -1083,6 +1264,23 @@ export class Garden {
    * Seedlings and rock survive — a nuke that could take a heart from nine cells away
    * would make the six-second seedling rule meaningless.
    */
+  /** Width of this seat's poison block. BLIGHT widens it. */
+  private takeoverSize(seat: number): number {
+    return TAKEOVER_SIZE + (this.techFor(seat).has('blight') ? TECH_BLIGHT_SIZE : 0);
+  }
+
+  /**
+   * Does this tile shrug off HOSTILE TAKEOVER?
+   *
+   * The rot-plants always do — the poison is theirs. STONEMOSS buys a MOSS the same
+   * immunity, which is the only answer in the game to a SPORE firing a 1-acid nuke
+   * every few seconds, and the reason the card is priced at the top of MOSS's list.
+   */
+  private poisonImmune(seat: number): boolean {
+    if (seat < 0) return false;
+    return this.roleOf(seat).poisonImmune === true || this.techFor(seat).has('stonemoss');
+  }
+
   hostileTakeover(seat: number, cell: number): boolean {
     const s = this.state;
     if (s.phase !== 'playing') return false;
@@ -1093,7 +1291,7 @@ export class Garden {
     const target = s.board.cells[cell];
     if (!target) return false;
 
-    const half = Math.floor(TAKEOVER_SIZE / 2);
+    const half = Math.floor(this.takeoverSize(seat) / 2);
     const c0 = xy(cell);
     const cleared: number[] = [];
     for (let dy = -half; dy <= half; dy++) {
@@ -1105,16 +1303,19 @@ export class Garden {
         const c = s.board.cells[i];
         if (c.kind === 'rock' || c.kind === 'home') continue;
         // A claim in progress by anyone vulnerable is broken off too.
-        if (c.claimant >= 0 && !this.roleOf(c.claimant).poisonImmune) {
+        if (c.claimant >= 0 && !this.poisonImmune(c.claimant)) {
           c.claimant = -1;
           c.progress = 0;
         }
         if (c.owner < 0) continue;
-        if (this.roleOf(c.owner).poisonImmune) continue;
+        if (this.poisonImmune(c.owner)) continue;
         this.emit({ t: 'withered', cell: i, seat: c.owner });
         c.owner = -1;
         c.wither = 0;
         c.spore = 0;
+        // The poison takes the granaries with it, contents and all.
+        c.store = 0;
+        c.fuel = 0;
         cleared.push(i);
       }
     }
@@ -1142,7 +1343,7 @@ export class Garden {
    */
   private bestTakeover(seat: number): { cell: number; gain: number } {
     const s = this.state;
-    const half = Math.floor(TAKEOVER_SIZE / 2);
+    const half = Math.floor(this.takeoverSize(seat) / 2);
     let bestCell = -1;
     let bestGain = 0;
     for (let i = 0; i < s.board.cells.length; i++) {
@@ -1157,7 +1358,7 @@ export class Garden {
           if (c.kind === 'rock' || c.kind === 'home') continue;
           if (c.owner < 0 || c.owner === seat) continue;
           if (isAllied(s.allies, seat, c.owner)) continue;
-          if (this.roleOf(c.owner).poisonImmune) continue;
+          if (this.poisonImmune(c.owner)) continue;
           gain++;
         }
       }
@@ -1179,16 +1380,21 @@ export class Garden {
     const hive = this.techFor(seat).has('hive');
     const cost = Math.max(1, INSECT_COST - (hive ? TECH_HIVE_DISCOUNT : 0));
     const cap = INSECT_CAP + (hive ? TECH_HIVE_CAP : 0);
-    if (s.seats[seat].energy < cost) return false;
     if (s.insects.filter((b) => b.seat === seat).length >= cap) return false;
+    // Hatched out of a network that can actually pay for it, so a broke half of a
+    // split mycelium cannot spend the rich half's stores.
     const mine: number[] = [];
     for (let i = 0; i < s.board.cells.length; i++) {
-      if (s.board.cells[i].owner === seat && s.board.cells[i].connected) mine.push(i);
+      const c = s.board.cells[i];
+      if (c.owner !== seat || !c.connected) continue;
+      if ((s.board.nets[c.net]?.fuel ?? 0) < cost) continue;
+      mine.push(i);
     }
     if (mine.length === 0) return false;
     const cell = mine[Math.floor(this.rng() * mine.length)];
-    s.seats[seat].energy -= cost;
-    s.insects.push({ id: this.nextInsect++, seat, cell, clock: INSECT_STEP, life: INSECT_LIFE });
+    this.spend(s.board.cells[cell].net, cost, cell);
+    const life = INSECT_LIFE * (this.techFor(seat).has('spawnsac') ? TECH_SPAWNSAC_LIFE : 1);
+    s.insects.push({ id: this.nextInsect++, seat, cell, clock: INSECT_STEP, life });
     this.emit({ t: 'hatch', cell, seat });
     return true;
   }
@@ -1226,6 +1432,8 @@ export class Garden {
         s.board.cells[target].claimant = -1;
         s.board.cells[target].progress = 0;
         this.emit({ t: 'bite', cell: target, seat: bug.seat, from });
+        // An insect that walks into a granary empties it. That is a raid.
+        this.loot(target, bug.seat, from);
         bug.cell = target;
         continue;
       }
@@ -1336,57 +1544,329 @@ export class Garden {
     }
   }
 
-  /** Flood from every seedling over that seat's tiles. Everything else is cut. */
-  private connectivity(): void {
+  /**
+   * Carve the board into NETWORKS, and work out which of them are alive.
+   *
+   * One flood per connected clump of one seat's tiles. Each clump becomes a `Net`
+   * with its own tile count, its own granaries and its own energy — so the instant a
+   * cut lands, the two halves stop sharing a purse. This runs twice a tick (before
+   * income and again after claims resolve) because the economy is computed off it
+   * and the snapshot has to ship the settled answer.
+   */
+  private buildNets(): void {
     const s = this.state;
-    const seen = new Uint8Array(s.board.cells.length);
-    const queue: number[] = [];
+    const cells = s.board.cells;
+    const nets: Net[] = [];
+    // Cell membership, kept alongside the nets themselves: income and spending both
+    // walk one network's tiles many times a tick, and scanning all 308 cells each
+    // time turned the economy into the most expensive thing in the simulation.
+    const members: number[][] = [];
     /*
-     * EVERY seedling you own is a root, not just the one you started on.
+     * Snap the two per-cell floats before anything totals them up.
      *
-     * Conquering someone's seedling leaves that cell on the board as a `home` in
-     * your colour, so it already looked like a second heart. Seeding the flood only
-     * from `board.homes[seat]` meant it was not one: it rooted nothing, fed nothing,
-     * and (because homes never wither) sat there as an immortal decoration in the
-     * middle of the territory you had just taken.
+     * Not cosmetic. Both accrue in tiny dribbles and both sit on EVERY cell, so at
+     * full precision they serialise as `20.53019999999962` and `0.5134999999999966`
+     * — eighteen characters a tile, twice over, which is most of a snapshot.
      *
-     * Now taking a heart really does give you a heart. It is the payoff that makes
-     * pushing for a seedling worth the six seconds it costs, and it is what lets a
-     * conquered zone stay alive on its own once you cut it free of your main mat.
+     * TEN THOUSANDTHS, not hundredths, and the difference is not fussiness: an
+     * income stream smaller than half a quantum per tick rounds away to nothing
+     * every tick and never accumulates at all. At hundredths that silently killed a
+     * cut-off pocket's territory income (0.0022 a tick) stone dead — caught by the
+     * split-economy test, which watched an island sit at exactly 5.00 forever. The
+     * slowest real stream in the game is a seedling capture at maximum toughness,
+     * about 0.0005 a tick, so the quantum has to be below that.
+     *
+     * Runs before the per-network totals, so `Net.fuel` and the cells it was summed
+     * from can never disagree.
      */
-    for (let i = 0; i < s.board.cells.length; i++) {
-      const c = s.board.cells[i];
-      if (c.kind !== 'home' || c.owner < 0) continue;
-      seen[i] = 1;
-      queue.push(i);
+    for (const c of cells) {
+      c.net = -1;
+      if (c.fuel !== 0) c.fuel = Math.round(c.fuel * 1e4) / 1e4;
+      if (c.progress !== 0) c.progress = Math.round(c.progress * 1e4) / 1e4;
     }
-    /*
-     * SPORE roots anywhere: any spore that survived its countdown becomes a second
-     * home and seeds the flood itself.
-     *
-     * Without this SPORE was strictly the worst role — it paid for adjacency-free
-     * placement with a connection it could essentially never keep, so every landing
-     * withered and the role did nothing. Rooting anywhere is what turns "jumps" from
-     * a drawback into a strategy: you plant a beachhead and grow outward from it.
-     */
-    for (let i = 0; i < s.board.cells.length; i++) {
-      const c = s.board.cells[i];
-      if (c.owner < 0 || seen[i]) continue;
-      if (!this.roleOf(c.owner).rootsAnywhere) continue;
-      if (c.spore > 0) continue; // still a fragile, unrooted landing
-      seen[i] = 1;
+
+    const queue: number[] = [];
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i].owner < 0 || cells[i].net >= 0) continue;
+      const owner = cells[i].owner;
+      const id = nets.length;
+      const net: Net = { owner, live: false, tiles: 0, stores: 0, fuel: 0, cap: 0 };
+      nets.push(net);
+      const mine: number[] = [];
+      members.push(mine);
+      queue.length = 0;
       queue.push(i);
+      cells[i].net = id;
+      for (let head = 0; head < queue.length; head++) {
+        const at = queue[head];
+        const c = cells[at];
+        mine.push(at);
+        net.tiles++;
+        net.fuel += c.fuel;
+        net.cap += c.store > 0 ? STORE_CAP : SAP_PER_TILE;
+        if (c.store > 0) net.stores++;
+        /*
+         * What makes a network LIVE — i.e. able to grow and attack rather than only
+         * defend itself.
+         *
+         * A seedling in it, or an owner that roots anywhere (SPORE and FUNGAL, whose
+         * every tile is its own root — the rule that makes them uncuttable).
+         */
+        if (c.kind === 'home') net.live = true;
+        for (const n of neighbours(s.board, at)) {
+          if (cells[n].owner !== owner || cells[n].net >= 0) continue;
+          cells[n].net = id;
+          queue.push(n);
+        }
+      }
+      if (this.roleOf(owner).rootsAnywhere) net.live = true;
+    }
+    s.board.nets = nets;
+    this.netCells = members;
+
+    /*
+     * Supply lines: how many cells each tile is from the nearest granary in its OWN
+     * network. Multi-source BFS, seeded from every store at once, walking only
+     * same-network cells — so a store across a cut supplies nothing.
+     */
+    for (const c of cells) c.dist = -1;
+    queue.length = 0;
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i].store > 0 && cells[i].owner >= 0) {
+        cells[i].dist = 0;
+        queue.push(i);
+      }
     }
     for (let head = 0; head < queue.length; head++) {
-      const i = queue[head];
-      const owner = s.board.cells[i].owner;
-      for (const n of neighbours(s.board, i)) {
-        if (seen[n]) continue;
-        if (s.board.cells[n].owner !== owner) continue;
-        seen[n] = 1;
+      const at = queue[head];
+      for (const n of neighbours(s.board, at)) {
+        if (cells[n].net !== cells[at].net || cells[n].dist >= 0) continue;
+        cells[n].dist = cells[at].dist + 1;
         queue.push(n);
       }
     }
+  }
+
+  /** The network a cell belongs to, or null. */
+  private netOf(cell: number): Net | null {
+    const n = this.state.board.cells[cell]?.net ?? -1;
+    return n >= 0 ? (this.state.board.nets[n] ?? null) : null;
+  }
+
+  /**
+   * Take `amount` energy out of one network's granaries, nearest the action first.
+   *
+   * Returns false and spends nothing if the network cannot cover it — a half-paid
+   * tap is not a thing, and the caller has already checked, so this is the backstop.
+   */
+  private spend(net: number, amount: number, near: number): boolean {
+    const s = this.state;
+    const info = s.board.nets[net];
+    if (!info || info.fuel < amount - 1e-6) return false;
+    const p = xy(near);
+    const stores = (this.netCells[net] ?? []).filter((i) => s.board.cells[i].fuel > 0);
+    stores.sort((a, b) => {
+      const qa = xy(a);
+      const qb = xy(b);
+      return (
+        Math.abs(qa.x - p.x) + Math.abs(qa.y - p.y) - (Math.abs(qb.x - p.x) + Math.abs(qb.y - p.y))
+      );
+    });
+    let left = amount;
+    for (const i of stores) {
+      if (left <= 0) break;
+      const c = s.board.cells[i];
+      const take = Math.min(c.fuel, left);
+      c.fuel -= take;
+      left -= take;
+    }
+    info.fuel = Math.max(0, info.fuel - amount);
+    this.syncPurses();
+    return true;
+  }
+
+  /**
+   * Pour `amount` into a network. Granaries first, then the sap in the tissue —
+   * energy in a tank is energy you can move around and lose in one raid, which is
+   * the trade the building exists for. Anything over capacity is lost.
+   */
+  private deposit(net: number, amount: number): void {
+    const s = this.state;
+    const info = s.board.nets[net];
+    if (!info || amount <= 0) return;
+    let left = Math.min(amount, Math.max(0, info.cap - info.fuel));
+    if (left <= 0) return;
+    info.fuel += left;
+    const mine = this.netCells[net] ?? [];
+    for (const pass of [1, 0]) {
+      for (const i of mine) {
+        if (left <= 0) break;
+        const c = s.board.cells[i];
+        if ((c.store > 0 ? 1 : 0) !== pass) continue;
+        const room = (c.store > 0 ? STORE_CAP : SAP_PER_TILE) - c.fuel;
+        if (room <= 0) continue;
+        const put = Math.min(room, left);
+        c.fuel += put;
+        left -= put;
+      }
+    }
+  }
+
+  /**
+   * A store just changed hands. The raider takes what was in it.
+   *
+   * Called the instant a cell with a granary on it is captured, bitten or otherwise
+   * taken. The building survives — you have seized a silo, not burned one — and its
+   * contents go to whoever took it, as far as they have room for them. Overflow is
+   * spilled, so a raid on a full granary you cannot house is still a denial.
+   *
+   * This is what makes a store the most valuable square on the board after a
+   * seedling, and it is why building one on your front line is a gamble rather than
+   * a free upgrade.
+   */
+  private loot(cell: number, to: number, from: number): void {
+    const c = this.state.board.cells[cell];
+    if (!c || c.store <= 0 || from < 0 || from === to) return;
+    const fuel = c.fuel * STEAL_CAP;
+    c.fuel = 0;
+    // Nets are stale the moment ownership changed, so rebuild before depositing —
+    // the raider's network may only just have swallowed this cell.
+    this.buildNets();
+    if (fuel > 0) this.deposit(c.net, fuel);
+    this.syncPurses();
+    this.emit({ t: 'looted', cell, seat: to, from, fuel: Math.round(fuel) });
+  }
+
+  /** Put energy earned AT a cell into the granaries of that cell's network. */
+  private feedFrom(cell: number, amount: number): void {
+    const net = this.state.board.cells[cell]?.net ?? -1;
+    if (net < 0) return;
+    this.deposit(net, amount);
+    this.syncPurses();
+  }
+
+  /**
+   * Build a nutrient store. The one thing you can construct in this game.
+   *
+   * On any tile you already hold, paid out of that tile's own network — you cannot
+   * fund a granary in a cut-off pocket with money from the far side of the cut,
+   * which is precisely the squeeze a cut is supposed to apply.
+   */
+  buildStore(seat: number, cell: number): boolean {
+    const s = this.state;
+    if (s.phase !== 'playing') return false;
+    const me = s.seats[seat];
+    if (!me?.alive) return false;
+    const c = s.board.cells[cell];
+    if (!c || c.owner !== seat) return false;
+    if (c.store > 0) return false; // already has one; seedlings are born with theirs
+    const net = c.net;
+    if (net < 0) return false;
+    if ((s.board.nets[net]?.fuel ?? 0) < STORE_COST) {
+      this.emit({ t: 'denied', cell, seat, reason: 'energy' });
+      return false;
+    }
+    this.spend(net, STORE_COST, cell);
+    c.store = 1;
+    c.fuel = 0;
+    // The new granary changes every supply line in the network, so recompute now
+    // rather than leaving the rest of this tick costed off the old map.
+    this.buildNets();
+    this.syncPurses();
+    this.emit({ t: 'built', cell, seat });
+    return true;
+  }
+
+  /** Roll every network's holdings back up onto its seat, for the HUD and the AI. */
+  private syncPurses(): void {
+    const s = this.state;
+    for (const seat of s.seats) {
+      seat.energy = 0;
+      seat.cap = 0;
+    }
+    for (const net of s.board.nets) {
+      const seat = s.seats[net.owner];
+      if (!seat) continue;
+      seat.energy += net.fuel;
+      seat.cap += net.cap;
+    }
+    // Same reason as `buildNets`: these ride every snapshot, and the HUD floors them
+    // anyway. Two decimals is more than the display or the rules can tell apart.
+    for (const seat of s.seats) {
+      seat.energy = Math.round(seat.energy * 100) / 100;
+      seat.cap = Math.round(seat.cap * 100) / 100;
+      seat.acid = Math.round(seat.acid * 100) / 100;
+      seat.sun = Math.round(seat.sun * 100) / 100;
+      seat.wood = Math.round(seat.wood * 100) / 100;
+    }
+  }
+
+  /**
+   * Which network would pay for a tap on `cell`, and how far down its supply line
+   * the tap is. `net` is -1 when nothing of yours can reach it.
+   *
+   * The payer is the adjacent tile of yours BEST supplied — closest to a granary —
+   * because a front supported from two directions should be costed off the good one.
+   */
+  private supply(seat: number, cell: number): { net: number; dist: number } {
+    const s = this.state;
+    let best = { net: -1, dist: 0 };
+    let bestD = Infinity;
+    for (const n of neighbours(s.board, cell)) {
+      const c = s.board.cells[n];
+      if (c.owner !== seat || c.net < 0) continue;
+      const d = c.dist < 0 ? FAR_FROM_STORE : c.dist;
+      if (d < bestD) {
+        bestD = d;
+        best = { net: c.net, dist: d + 1 };
+      }
+    }
+    if (best.net >= 0) return best;
+    /*
+     * SPORE lands with nothing adjacent, so the bill goes to whichever of its tiles
+     * threw the pod — and it is priced on how well supplied THAT tile is, not on how
+     * far the pod then flew.
+     *
+     * The flight is deliberately free. Distance-costs-more is a rule about hauling
+     * things overland, and a spore is the one thing in the garden that does not haul:
+     * charging it for the crossing put every landing at the ceiling multiplier and
+     * took the faction from a third of the board to no wins at all in forty matches.
+     * A pod is packed at the granary, and then the wind has it.
+     */
+    const role = this.roleOf(seat);
+    if (role.remote) {
+      const p = xy(cell);
+      const hop = role.hop ?? 4;
+      for (let i = 0; i < s.board.cells.length; i++) {
+        const c = s.board.cells[i];
+        if (c.owner !== seat || c.net < 0) continue;
+        const q = xy(i);
+        if (Math.abs(q.x - p.x) + Math.abs(q.y - p.y) > hop) continue; // out of throw
+        const d = c.dist < 0 ? FAR_FROM_STORE : c.dist;
+        if (d < bestD) {
+          bestD = d;
+          best = { net: c.net, dist: d };
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Settle what is fed and what is cut, off the networks.
+   *
+   * A cell is fed when its NETWORK is live — that is, when the clump it belongs to
+   * contains a seedling, or belongs to a plant that roots anywhere. Which is exactly
+   * the old flood-from-every-seedling rule, now expressed once in `buildNets` and
+   * reused by the economy instead of computed twice with two chances to disagree.
+   *
+   * EVERY seedling you own is a root, not just the one you started on: conquering a
+   * heart really does give you a heart, and the zone around it stays alive on its
+   * own once you cut it free of your main mat.
+   */
+  private connectivity(): void {
+    const s = this.state;
+    this.buildNets();
     /*
      * Who cut whom.
      *
@@ -1407,9 +1887,11 @@ export class Garden {
       const c = s.board.cells[i];
       if (c.owner < 0) {
         c.connected = false;
+        c.store = 0;
+        c.fuel = 0;
         continue;
       }
-      const fed = seen[i] === 1;
+      const fed = this.netOf(i)?.live === true;
       if (c.connected && !fed) severed.set(c.owner, (severed.get(c.owner) ?? 0) + 1);
       c.connected = fed;
       if (fed) c.wither = 0;
@@ -1423,6 +1905,7 @@ export class Garden {
       seat.tiles = 0;
     }
     for (const c of s.board.cells) if (c.owner >= 0) s.seats[c.owner].tiles++;
+    this.syncPurses();
   }
 
   private stepWither(dt: number): void {
@@ -1431,6 +1914,21 @@ export class Garden {
       const c = s.board.cells[i];
       if (c.owner < 0 || c.connected) continue;
       if (c.kind === 'home') continue; // homes never rot
+      /*
+       * A POCKET WITH A GRANARY DOES NOT ROT.
+       *
+       * Cut a limb with no store on it and it dies exactly as it always did. But cut
+       * off a piece of garden that has somewhere to keep its food, and it digs in
+       * instead: it goes on earning into its own stores and it goes on defending
+       * itself — it simply cannot grow or attack any more (see `legalTap`). Taking
+       * that ground now means chewing through it tile by tile, which is a siege
+       * rather than a formality, and it is the whole reason to build granaries
+       * forward instead of huddling them round your seedling.
+       */
+      if ((this.netOf(i)?.stores ?? 0) > 0) {
+        c.wither = 0;
+        continue;
+      }
       c.wither -= dt;
       if (c.spore > 0) c.spore = Math.max(0, c.spore - dt);
       if (c.wither <= 0) {
@@ -1440,6 +1938,11 @@ export class Garden {
         c.spore = 0;
         c.claimant = -1;
         c.progress = 0;
+        // Whatever sap was in it dies with it. Cleared here rather than left for the
+        // next tick's `connectivity` sweep so no snapshot ever ships a granary
+        // standing on ground that belongs to nobody.
+        c.store = 0;
+        c.fuel = 0;
         this.emit({ t: 'withered', cell: i, seat });
       }
     }
@@ -1479,6 +1982,62 @@ export class Garden {
   }
 
   /**
+   * Bots shop.
+   *
+   * Without this a bot banked three currencies for a whole match and spent none of
+   * them, so every solo game was a human with fifty upgrades against four gardens
+   * with none — and the bigger the tree got, the more lopsided that became. It buys
+   * the most expensive thing it can afford, which with no prerequisites in the way
+   * is a perfectly reasonable policy: cost IS the power ordering now.
+   */
+  private stepBotTech(seat: number): void {
+    const me = this.state.seats[seat];
+    if (!me?.role) return;
+    const owned = this.techFor(seat);
+    let best: TechDef | null = null;
+    for (const def of techsFor(me.role)) {
+      if (owned.has(def.id)) continue;
+      if (me[def.currency] < def.cost) continue;
+      if (!best || def.cost > best.cost) best = def;
+    }
+    if (best) this.buyTech(seat, best.id);
+  }
+
+  /**
+   * Bots build granaries.
+   *
+   * Two reasons to put one up, and they are the same two a person has:
+   *
+   *  1. A network with NO store is inert — it cannot bank a thing and it withers the
+   *     moment it is cut. Fix that first, always.
+   *  2. Otherwise, plant one at the worst-supplied tile it owns, once it is far
+   *     enough out to be worth it. That is what turns a bot's sprawl into a supply
+   *     network instead of one fat barn at home and an unaffordable front line.
+   */
+  private stepBotBuild(seat: number): void {
+    const s = this.state;
+    let bestCell = -1;
+    let bestDist = -1;
+    for (let i = 0; i < s.board.cells.length; i++) {
+      const c = s.board.cells[i];
+      if (c.owner !== seat || c.store > 0) continue;
+      const net = s.board.nets[c.net];
+      if (!net || net.fuel < STORE_COST) continue;
+      // A storeless network cannot pay for anything, so it can never build its way
+      // out — its first granary has to come out of a neighbour's... which it cannot
+      // reach. Nothing to do here; it lives on what it can defend with. Only nets
+      // that CAN pay get here at all, which means they already hold a store.
+      const d = c.dist < 0 ? FAR_FROM_STORE : c.dist;
+      if (d > bestDist) {
+        bestDist = d;
+        bestCell = i;
+      }
+    }
+    // Four cells out is where the supply surcharge starts to bite (see supplyMul).
+    if (bestCell >= 0 && bestDist >= 4) this.buildStore(seat, bestCell);
+  }
+
+  /**
    * Bots that play the actual game rather than a script: expand toward the largest
    * neighbour opportunity, and take a cut when one is on offer.
    */
@@ -1504,17 +2063,37 @@ export class Garden {
       if (shot.cell >= 0 && shot.gain >= 6 && this.hostileTakeover(seat, shot.cell)) return;
     }
 
+    this.stepBotTech(seat);
+    this.stepBotBuild(seat);
+
     /*
-     * Defend the heart first. A bot that let its seedling be eaten while it tapped
-     * away at open soil would make the repel look like a mechanic only humans get,
-     * and `isBeingTaken` below deliberately skips cells under claim — including its
-     * own base, which is the one it must not skip.
+     * Defend. A bot that let itself be eaten while it tapped away at open soil would
+     * make the defence look like a mechanic only humans get, and `isBeingTaken` below
+     * deliberately skips cells under claim — including its own tiles, which are the
+     * ones it must not skip.
+     *
+     * A seedling under assault is answered unconditionally; anywhere else it wants a
+     * worthwhile blast, so it does not burn its one cooldown on a single stray tile.
+     * Tiles are worth more than knocked claims because destroying ground is permanent
+     * and a knockback is only a delay.
      */
-    for (const root of this.seedlingsOf(seat)) {
-      const c = s.board.cells[root];
-      if (c.claimant >= 0 && c.claimant !== seat && c.progress > 0) {
-        if (this.tap(seat, root)) return;
+    if (s.seats[seat].repelCooldown <= 0) {
+      let bestCell = -1;
+      let bestScore = 0;
+      const bonus = repelBonus(s.seats[seat]);
+      for (let i = 0; i < s.board.cells.length; i++) {
+        const c = s.board.cells[i];
+        if (c.owner !== seat) continue;
+        const hits = repelHits(s.board, s.allies, seat, i, bonus);
+        const siege = c.kind === 'home' && c.claimant >= 0 && c.claimant !== seat && c.progress > 0;
+        const score = hits.kill.length * 2 + hits.knock.length + (siege ? 6 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCell = i;
+        }
       }
+      // Two tiles' worth of damage, or a heart being eaten. Below that, keep growing.
+      if (bestCell >= 0 && bestScore >= 4 && this.tap(seat, bestCell)) return;
     }
 
     // Distance is measured to the NEAREST seedling this seat holds, not to the one
@@ -1529,8 +2108,16 @@ export class Garden {
       if (isBeingTaken(s.board, i)) continue;
       const kind = legalTap(s.board, s.seats, seat, role, i);
       if (!kind) continue;
-      const cost = kind === 'attack' ? this.costOf(seat, i) : role.growCost;
-      if (s.seats[seat].energy < cost) continue;
+      // Every tile it owns is a legal defence now, and a defence gains no ground —
+      // handled above on its own terms, never as an expansion option.
+      if (kind === 'repel') continue;
+      // Affordability is a question about ONE network's granaries, not about the
+      // seat: a bot with a rich half and a broke half must not queue up taps the
+      // broke half cannot pay for.
+      const pay = this.supply(seat, i);
+      if (pay.net < 0) continue;
+      const cost = this.costOf(seat, i);
+      if ((s.board.nets[pay.net]?.fuel ?? 0) < cost) continue;
       let score = this.rng() * 0.6;
       const c = s.board.cells[i];
       /*
@@ -1599,12 +2186,19 @@ export class Garden {
       let canAct = false;
       for (let i = 0; i < s.board.cells.length && !canAct; i++) {
         const kind = legalTap(s.board, s.seats, seat.seat, role, i);
-        // A repel is not a way to gain ground, so it is not evidence of life. Your
-        // own seedling is ALWAYS a legal repel target, so counting it here would
+        // A repel is not a way to gain ground, so it is not evidence of life. Every
+        // tile you own is ALWAYS a legal repel target, so counting it here would
         // mean nobody could ever be entombed again.
         if (kind && kind !== 'repel') canAct = true;
       }
       if (!canAct && role.creep) canAct = this.hasCreepRoom(seat.seat);
+      /*
+       * ...and neither is holding a besieged pocket. A network with a granary and no
+       * seedling is explicitly alive-but-frozen: it cannot gain ground, and killing
+       * its owner for that would delete the whole point of building stores forward.
+       * They stay in the match until somebody chews the pocket off the board.
+       */
+      if (!canAct) canAct = s.board.nets.some((n) => n.owner === seat.seat && n.stores > 0);
       if (!canAct && seat.tiles > 0) {
         seat.alive = false;
         this.emit({ t: 'eliminated', seat: seat.seat });

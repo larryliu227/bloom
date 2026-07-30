@@ -172,24 +172,50 @@ body {
 .hud-back:active {
   background: #1e2f24;
 }
-.hud-energy {
-  font-size: 20px;
+/* Energy plus the three tech purses. Four readouts have to share a phone's width
+   with the action buttons, so they are grouped tight and sized down from the single
+   20px number this used to be — legible at a glance, but not the loudest thing up
+   there. Fixed advance widths stop the HUD shuffling sideways every time one ticks. */
+.hud-purse {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.hud-purse > span {
+  font-size: 15px;
   font-weight: 700;
-  color: #ffc23d;
-  /* Energy is uncapped, so this readout grows digits during a long match. Fixed
-     advance widths stop the whole HUD shuffling sideways every time it ticks. */
   font-variant-numeric: tabular-nums;
-  min-width: 3ch;
   white-space: nowrap;
 }
+.hud-energy {
+  color: #ffc23d;
+  min-width: 5ch;
+}
 .hud-energy::before {
-  content: "⚡ ";
+  content: "⚡";
+}
+/* Stores full means income has STOPPED. That is not a detail, it is an instruction
+   to go and build something, so it pulses until you do. */
+.hud-energy.full { color: #ff8a4d; animation: purse-full 1s ease-in-out infinite; }
+@keyframes purse-full {
+  50% { opacity: 0.45; }
 }
 
 @media (min-width: 560px) {
   .role-grid {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* A narrow phone cannot fit four readouts, three action buttons and a labelled TECH
+   button on one 393 px row. The word "TECH" is the only thing there that is pure
+   decoration — the seedling icon says it — so that is what goes. */
+@media (max-width: 460px) {
+  .hud { gap: 7px; padding: 0 7px; }
+  .hud-tech-label { display: none; }
+  .hud-purse { gap: 6px; }
+  .hud-purse > span { font-size: 14px; }
 }
 
 /* ---------------------------------------------------------------- tech */
@@ -417,41 +443,31 @@ body[data-sky="night"] { --bg: #070c14; }
 body[data-sky="night"] .board-wrap { background: radial-gradient(120% 80% at 50% 0%, #0b1424 0%, #070c14 70%); }
 body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0%, #16241a 0%, #0d1410 70%); }
 
-/* ------------------------------------------------------- tech tree (branching) */
+/* ------------------------------------------------------- tech tree (a shop floor)
+
+   No prerequisites means no connectors and no locks — every card is either paid for
+   or it is not. So this is a plain wrapping grid rather than the old tier-column row
+   that scrolled sideways: fifty cards do not fit on a phone in columns, and a card
+   you have to scroll to find is a card you never buy. */
 .tech-branch {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
   margin-bottom: 10px;
-  -webkit-overflow-scrolling: touch;
 }
-.tech-tier { display: flex; flex-direction: column; gap: 8px; flex: none; }
-/* The connector IS the prerequisite: you can see what unlocks what. */
-.tech-link {
-  flex: none;
-  width: 22px;
-  align-self: center;
-  border-top: 3px solid var(--line);
-  position: relative;
-}
-.tech-link::after {
-  content: "";
-  position: absolute;
-  right: -1px;
-  top: -6px;
-  border: 5px solid transparent;
-  border-left-color: var(--line);
-}
+/* The legend for the three prices. Same colours as the HUD readouts. */
+.tech-purses { display: flex; flex-wrap: wrap; gap: 10px; }
+.tech-purse { font-size: 10px; letter-spacing: 0.12em; }
+.tech-purse.cur-acid { color: #9ee83d; }
+.tech-purse.cur-sun { color: #ffd76a; }
+.tech-purse.cur-wood { color: #c8894a; }
 .tech-node {
   position: relative;
-  width: 148px;
-  min-height: 92px;
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px;
+  padding: 10px 10px 10px 10px;
   background: var(--panel);
   color: var(--ink);
   border: 2px solid var(--line);
@@ -470,12 +486,13 @@ body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0
   right: 10px;
   font-size: 13px;
   font-weight: 700;
-  color: #ffc23d;
 }
-.tech-node .tech-lock { display: none; position: absolute; right: 10px; bottom: 8px; font-size: 13px; }
-.tech-node:disabled:not(.owned) { opacity: 0.5; cursor: default; }
-.tech-node.locked { opacity: 0.34; }
-.tech-node.locked .tech-lock { display: block; }
+/* The price is drawn in its purse's colour — a card is out of reach for exactly one
+   reason now, and this says which readout to go and grow. */
+.tech-node.cur-acid .tech-cost { color: #9ee83d; }
+.tech-node.cur-sun .tech-cost { color: #ffd76a; }
+.tech-node.cur-wood .tech-cost { color: #c8894a; }
+.tech-node:disabled:not(.owned) { opacity: 0.45; cursor: default; }
 .tech-node.owned { border-color: #3ddc6b; background: #16301f; opacity: 1; }
 .tech-node.owned .tech-cost { color: #3ddc6b; }
 .tech-node.owned .tech-cost::after { content: " ✓"; }
@@ -645,11 +662,6 @@ body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0
 .ally-row.is-offered { border-color: #ffc23d; }
 .ally-row.is-offered .ally-tag { color: #ffc23d; }
 
-/* A forked tech tree needs the prerequisite named on the card: two tier-3s sit in
-   the same column and the connector between columns cannot say which is which. */
-.tech-node .tech-req { display: none; }
-.tech-node.locked .tech-req { display: block; }
-
 /* ---------------------------------------------------------------- draft
 
    Choosing a plant, with the map already on screen behind it. A sheet rather than
@@ -726,15 +738,15 @@ body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0
 .board-wrap.drafting { padding-bottom: 300px; }
 
 /* Acid: the tech currency. Sits next to energy so the two budgets read together. */
-.hud-acid {
-  font-size: 20px;
-  font-weight: 700;
-  color: #9ee83d;
-  font-variant-numeric: tabular-nums;
-  min-width: 2ch;
-  white-space: nowrap;
-}
-.hud-acid::before { content: "🜁 "; }
+/* The three purses, each in the colour of the ground that fills it. A card's price
+   is printed in the same colour, so "which of these do I need" is answered without
+   reading a single word. */
+.hud-acid { color: #9ee83d; min-width: 2ch; }
+.hud-acid::before { content: "🜁"; }
+.hud-sun { color: #ffd76a; min-width: 2ch; }
+.hud-sun::before { content: "☀"; }
+.hud-wood { color: #c8894a; min-width: 2ch; }
+.hud-wood::before { content: "▤"; }
 
 /* An armed item is waiting for a target — say so loudly, and on the board itself. */
 .hud-act.armed {

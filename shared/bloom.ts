@@ -14,8 +14,20 @@ export type MapKind = 'open' | 'walled' | 'warren' | 'pillars';
 
 // ============================================================ board
 
-export const BOARD_W = 12;
-export const BOARD_H = 18;
+/**
+ * Board size.
+ *
+ * 14x22 = 308 cells. Bigger than the original 12x18 on purpose: more room for a
+ * runner to matter, more resource tiles to fight over, and enough distance between
+ * seedlings that an early rush is a decision rather than the only opening.
+ *
+ * The ceiling is the phone, not the simulation: the WHOLE board is on screen at all
+ * times with no pan and no zoom, so every extra column costs every player cell size.
+ * At 14 wide a 393 px phone gives 28 px cells, which the snap radius in the renderer
+ * still covers comfortably. Going wider than this starts costing taps.
+ */
+export const BOARD_W = 14;
+export const BOARD_H = 22;
 export const CELL_COUNT = BOARD_W * BOARD_H;
 
 /** 4-neighbour offsets. No diagonals — easier to read and to reason about. */
@@ -49,6 +61,29 @@ export interface Cell {
   /** Seat index of the owner, or -1. */
   owner: number;
   /**
+   * Which of its owner's separate NETWORKS this cell belongs to — an index into
+   * `Board.nets`, or -1 when unowned. Server-computed every tick.
+   *
+   * A garden that gets cut in half is not one garden with a problem, it is two
+   * gardens. Each half earns its own income into its own stores and spends only what
+   * it has, which is why a cut hurts even when nothing withers: the half without
+   * your granary is suddenly broke.
+   */
+  net: number;
+  /**
+   * 1 when a NUTRIENT STORE stands here. Every seedling has one from the start;
+   * everything else has to be built (see `STORE_COST`).
+   */
+  store: number;
+  /** Energy held in this store, 0..STORE_CAP. Always 0 where there is no store. */
+  fuel: number;
+  /**
+   * Cells from the nearest store in this same network, or -1 when the network holds
+   * none. This is the supply line: a tap costs more the further it is from a store,
+   * so the way to push a front forward is to build a granary behind it.
+   */
+  dist: number;
+  /**
    * 0..1. Rises while being claimed, and is what the client animates. A cell only
    * changes `owner` when this completes, so a contested cell reads honestly.
    */
@@ -66,11 +101,42 @@ export interface Cell {
   spore: number;
 }
 
+/**
+ * One connected network of one seat's tiles — the unit the economy actually runs on.
+ *
+ * Split a garden and you get two of these, with two separate purses. That is the
+ * whole point: cutting somebody used to be a slow death sentence for the far side
+ * (it withered), which meant a cut either killed everything behind it or, if they
+ * had a store, nothing at all. Now a cut SPLITS THE ECONOMY, immediately, and the
+ * far half lives or dies on what it can pay for out of its own granaries.
+ */
+export interface Net {
+  owner: number;
+  /**
+   * Contains a root — a seedling, or any tile at all for the plants that root
+   * anywhere. A network that is NOT live cannot grow and cannot attack: it is a
+   * besieged pocket that may only defend itself (see `stepWither` for what happens
+   * to a pocket with no store to live off).
+   */
+  live: boolean;
+  tiles: number;
+  /** How many granaries stand in it. Zero means a cut of it is a death sentence. */
+  stores: number;
+  /**
+   * Energy banked here, and what this network can hold — its granaries plus the sap
+   * in its own tissue (see `SAP_PER_TILE`).
+   */
+  fuel: number;
+  cap: number;
+}
+
 export interface Board {
   w: number;
   h: number;
   /** Row-major, length w*h. */
   cells: Cell[];
+  /** Every live network on the board, indexed by `Cell.net`. Rebuilt every tick. */
+  nets: Net[];
   /**
    * Cell index of each seat's CURRENT primary seedling, indexed by seat; -1 once
    * they hold none and are out.
@@ -171,43 +237,66 @@ export interface RoleDef {
 // ============================================================ tech
 
 /**
- * Upgrades — a real tree, not a shopping list.
+ * Upgrades — a shop floor, not a tech LADDER.
  *
- * Shared: TWO chains three deep, and you cannot afford both. SURGE leads to the
- * sun (a fast, greedy economy); DEEP ROOT leads to compost and heartwood (a tough,
- * slow one). Picking one is picking how you intend to win.
+ * There are exactly two requirements to buy anything: **be alive, and be able to
+ * pay for it.** No prerequisites, no chains, no card that sits there telling you it
+ * NEEDS something else first. Every upgrade on your list is one you could buy this
+ * second if you held the ground that pays for it.
  *
- * Faction: one opener, then a FORK — two tier-2s off it, each with its own tier-3.
- * So two VINEs can end the match with genuinely different vines, and the shape of
- * the tree tells you that before you commit. `requires` is enforced in the model
- * (see `Garden.buyTech`), never merely hidden in the UI.
+ * That moves the whole gate onto the MAP. What you can afford is decided by which
+ * tiles you are holding right now, in three separate purses:
+ *
+ *   🜁 ACID  — everyone earns it, and it is the scarcest ground on the board.
+ *   ☀ SUN   — daylight only, and LETHAL to FUNGAL and SPORE, who therefore never
+ *              see a sun-priced card at all (see `techsFor`).
+ *   ▤ WOOD  — anyone can hold timber, so this is the purse you can always open if
+ *              you are willing to fight for a stand of it.
+ *
+ * A purse you cannot fill is a branch of the tree you cannot climb, which is the
+ * same pressure the old `requires` chain applied — except you can see it on the
+ * board instead of reading it off a card.
  */
 export type TechId =
-  // shared — two chains, three deep each
+  // shared — anyone may take these
   | 'surge'
-  | 'solar'
-  | 'zenith'
+  | 'sprig'
+  | 'sap'
   | 'deeproot'
   | 'compost'
   | 'heartwood'
+  | 'husk'
+  | 'solar'
+  | 'zenith'
+  | 'dew'
+  | 'rain'
+  | 'veins'
+  | 'bulwark'
+  | 'reflex'
   // VINE
   | 'whip'
   | 'lash'
   | 'canopy'
   | 'thicket'
   | 'lightning'
+  | 'trellis'
+  | 'rend'
   // MOSS
   | 'carpet'
   | 'bark'
   | 'bog'
   | 'rampart'
   | 'peat'
+  | 'cushion'
+  | 'stonemoss'
   // SPORE
   | 'drift'
   | 'pod'
   | 'burst'
   | 'gale'
   | 'bloomburst'
+  | 'windborne'
+  | 'blight'
   // FUNGAL
   | 'mycelium'
   | 'enzyme'
@@ -215,12 +304,31 @@ export type TechId =
   | 'brood'
   | 'hive'
   | 'rot'
+  | 'putrefy'
+  | 'spawnsac'
   // THORN
   | 'barbs'
   | 'feed'
   | 'swarm'
   | 'venom'
-  | 'bramble';
+  | 'bramble'
+  | 'spike'
+  | 'gorge';
+
+/** Which purse a card is priced in. See the note on `TechId`. */
+export type Currency = 'acid' | 'sun' | 'wood';
+
+export const CURRENCIES: readonly Currency[] = ['acid', 'sun', 'wood'];
+
+/** The glyph each purse is drawn with, on the HUD and on every card. */
+export const CURRENCY_ICON: Record<Currency, string> = { acid: '🜁', sun: '☀', wood: '▤' };
+
+/**
+ * Plants that sunlight kills, and which therefore can never bank a single point of
+ * sun. Declared here rather than read off `RoleDef.sunKills` because `rules.ts`
+ * (where the roles live) imports this file, not the other way round.
+ */
+export const SUN_BLIND_ROLES: readonly RoleId[] = ['fungal', 'spore'];
 
 export interface TechDef {
   id: TechId;
@@ -228,101 +336,117 @@ export interface TechDef {
   /** Child-readable. No numbers. */
   blurb: string;
   cost: number;
+  /** Which purse pays for it. See `Currency`. */
+  currency: Currency;
   icon: string;
   /** Undefined = available to everyone. Otherwise only this faction may take it. */
   role?: RoleId;
-  /** Must be owned first. This is what makes the branch a tree. */
-  requires?: TechId;
   /**
    * Factions this tech does nothing for, and which therefore never see it.
    *
-   * FUNGAL earns only by digesting, so every income upgrade in the shared tree is a
-   * dead buy for it. Offering a card that provably cannot help is a trap, not a
-   * choice.
+   * FUNGAL earns only by digesting, so every per-tile income upgrade is a dead buy
+   * for it. Offering a card that provably cannot help is a trap, not a choice.
    */
   notFor?: RoleId[];
+  /**
+   * Power band, 1..4. Purely how the panel groups the cards — it is NOT a
+   * prerequisite depth, because there are no prerequisites. A tier-4 card is simply
+   * an expensive one you may buy first if you can somehow pay for it.
+   */
   tier: number;
 }
 
 export const TECHS: TechDef[] = [
-  // --- shared: the greedy chain
-  { id: 'surge', name: 'SURGE', blurb: 'everything grows faster', cost: 8, icon: '⚡', tier: 1 },
-  { notFor: ['fungal'], id: 'solar', name: 'SOLAR', blurb: 'sun tiles feed you more', cost: 14, icon: '☀', tier: 2, requires: 'surge' },
-  { notFor: ['fungal'], id: 'zenith', name: 'ZENITH', blurb: 'your suns keep feeding after dark', cost: 22, icon: '✷', tier: 3, requires: 'solar' },
+  // ---------------------------------------------------------------- shared
+  { id: 'surge', name: 'SURGE', blurb: 'everything grows faster', cost: 8, currency: 'acid', icon: '⚡', tier: 1 },
+  { id: 'sprig', name: 'SPRIG', blurb: 'planting costs less', cost: 12, currency: 'acid', icon: '🌱', tier: 2 },
+  // FUNGAL eats for free already, so a discount on eating is nothing to it.
+  { notFor: ['fungal'], id: 'sap', name: 'SAP', blurb: 'eating costs less', cost: 12, currency: 'wood', icon: '💧', tier: 2 },
+  // Neither rot-plant can be cut (both root anywhere), so wither techs are dead buys.
+  { notFor: ['fungal', 'spore'], id: 'deeproot', name: 'DEEP ROOT', blurb: 'cut vines hang on longer', cost: 10, currency: 'acid', icon: '⚓', tier: 1 },
+  { notFor: ['fungal', 'spore'], id: 'compost', name: 'COMPOST', blurb: 'every tile you hold feeds you more', cost: 12, currency: 'wood', icon: '❂', tier: 2 },
+  { id: 'heartwood', name: 'HEARTWOOD', blurb: 'your seedlings take much longer to lose', cost: 20, currency: 'wood', icon: '♥', tier: 3 },
+  { id: 'husk', name: 'HUSK', blurb: 'all your ground is tougher to eat', cost: 16, currency: 'wood', icon: '🥥', tier: 3 },
+  { id: 'solar', name: 'SOLAR', blurb: 'sun tiles feed you more', cost: 8, currency: 'sun', icon: '☀', tier: 1 },
+  { id: 'zenith', name: 'ZENITH', blurb: 'your suns keep feeding after dark', cost: 18, currency: 'sun', icon: '✷', tier: 3 },
+  { id: 'dew', name: 'DEW', blurb: 'a steadier trickle of energy', cost: 10, currency: 'sun', icon: '💦', tier: 2 },
+  { id: 'rain', name: 'RAIN', blurb: 'the night no longer slows you', cost: 14, currency: 'sun', icon: '🌧', tier: 2 },
+  { id: 'veins', name: 'ACID VEINS', blurb: 'acid pools pay you far more', cost: 14, currency: 'acid', icon: '⚗', tier: 2 },
+  { id: 'bulwark', name: 'BULWARK', blurb: 'your defence clears a wider ring', cost: 16, currency: 'acid', icon: '⛨', tier: 3 },
+  { id: 'reflex', name: 'REFLEX', blurb: 'defend twice as often', cost: 12, currency: 'acid', icon: '⟳', tier: 2 },
 
-  // --- shared: the stubborn chain
-  { notFor: ['fungal'], id: 'deeproot', name: 'DEEP ROOT', blurb: 'cut vines hang on longer', cost: 10, icon: '⚓', tier: 1 },
-  { notFor: ['fungal'], id: 'compost', name: 'COMPOST', blurb: 'every tile you hold feeds you more', cost: 15, icon: '❂', tier: 2, requires: 'deeproot' },
-  { id: 'heartwood', name: 'HEARTWOOD', blurb: 'your seedlings take much longer to lose', cost: 24, icon: '♥', tier: 3, requires: 'compost' },
+  // ---------------------------------------------------------------- VINE
+  { id: 'whip', name: 'WHIP', blurb: 'runners go further', cost: 9, currency: 'acid', icon: '➤', role: 'vine', tier: 1 },
+  { id: 'lash', name: 'LASH', blurb: 'runners cost less', cost: 14, currency: 'acid', icon: '⇉', role: 'vine', tier: 2 },
+  { id: 'canopy', name: 'CANOPY', blurb: 'runners land much faster', cost: 14, currency: 'wood', icon: '❋', role: 'vine', tier: 2 },
+  { id: 'trellis', name: 'TRELLIS', blurb: 'cut runners barely rot', cost: 16, currency: 'wood', icon: '⌗', role: 'vine', tier: 2 },
+  { id: 'thicket', name: 'THICKET', blurb: 'runners are hard to chew through', cost: 22, currency: 'wood', icon: '፨', role: 'vine', tier: 3 },
+  { id: 'lightning', name: 'LIGHTNING', blurb: 'runners cross half the garden', cost: 24, currency: 'acid', icon: '↯', role: 'vine', tier: 3 },
+  { id: 'rend', name: 'REND', blurb: 'runners tear straight through enemy ground', cost: 26, currency: 'acid', icon: '⚔', role: 'vine', tier: 4 },
 
-  // --- VINE: distance, then a fork between tough runners and long ones
-  { id: 'whip', name: 'WHIP', blurb: 'runners go further', cost: 9, icon: '➤', role: 'vine', tier: 1 },
-  { id: 'lash', name: 'LASH', blurb: 'runners cost less', cost: 16, icon: '⇉', role: 'vine', tier: 2, requires: 'whip' },
-  { id: 'canopy', name: 'CANOPY', blurb: 'runners land much faster', cost: 16, icon: '❋', role: 'vine', tier: 2, requires: 'whip' },
-  { id: 'thicket', name: 'THICKET', blurb: 'runners are hard to chew through', cost: 24, icon: '፨', role: 'vine', tier: 3, requires: 'lash' },
-  { id: 'lightning', name: 'LIGHTNING', blurb: 'runners cross half the garden', cost: 26, icon: '↯', role: 'vine', tier: 3, requires: 'canopy' },
+  // ---------------------------------------------------------------- MOSS
+  { id: 'carpet', name: 'CARPET', blurb: 'claim a bigger patch', cost: 9, currency: 'acid', icon: '▦', role: 'moss', tier: 1 },
+  { id: 'cushion', name: 'CUSHION', blurb: 'patches cost less to lay', cost: 12, currency: 'sun', icon: '☁', role: 'moss', tier: 2 },
+  { id: 'bark', name: 'BARK', blurb: 'much harder to eat', cost: 14, currency: 'wood', icon: '🛡', role: 'moss', tier: 2 },
+  { id: 'bog', name: 'BOG', blurb: 'never withers', cost: 16, currency: 'acid', icon: '≋', role: 'moss', tier: 2 },
+  { id: 'rampart', name: 'RAMPART', blurb: 'they pay dearly for every tile', cost: 22, currency: 'wood', icon: '⛫', role: 'moss', tier: 3 },
+  { id: 'peat', name: 'PEAT', blurb: 'your ground feeds you richly', cost: 24, currency: 'wood', icon: '⬛', role: 'moss', tier: 3 },
+  { id: 'stonemoss', name: 'STONEMOSS', blurb: 'poison cannot touch your ground', cost: 26, currency: 'acid', icon: '🗿', role: 'moss', tier: 4 },
 
-  // --- MOSS: bulk, then a fork between armour and permanence
-  { id: 'carpet', name: 'CARPET', blurb: 'claim a bigger patch', cost: 9, icon: '▦', role: 'moss', tier: 1 },
-  { id: 'bark', name: 'BARK', blurb: 'much harder to eat', cost: 16, icon: '🛡', role: 'moss', tier: 2, requires: 'carpet' },
-  { id: 'bog', name: 'BOG', blurb: 'never withers', cost: 16, icon: '≋', role: 'moss', tier: 2, requires: 'carpet' },
-  { id: 'rampart', name: 'RAMPART', blurb: 'they pay dearly for every tile', cost: 24, icon: '⛨', role: 'moss', tier: 3, requires: 'bark' },
-  { id: 'peat', name: 'PEAT', blurb: 'your ground feeds you richly', cost: 26, icon: '⬛', role: 'moss', tier: 3, requires: 'bog' },
+  // ---------------------------------------------------------------- SPORE
+  { id: 'drift', name: 'DRIFT', blurb: 'hop further', cost: 9, currency: 'acid', icon: '❂', role: 'spore', tier: 1 },
+  { id: 'pod', name: 'POD', blurb: 'spores cost less', cost: 14, currency: 'acid', icon: '◍', role: 'spore', tier: 2 },
+  { id: 'burst', name: 'BURSTPOD', blurb: 'landings spread out', cost: 14, currency: 'wood', icon: '✺', role: 'spore', tier: 2 },
+  { id: 'windborne', name: 'WINDBORNE', blurb: 'landings are much tougher', cost: 16, currency: 'wood', icon: '🌀', role: 'spore', tier: 2 },
+  { id: 'gale', name: 'GALE', blurb: 'hop clean across the garden', cost: 22, currency: 'acid', icon: '≈', role: 'spore', tier: 3 },
+  { id: 'bloomburst', name: 'BLOOMBURST', blurb: 'landings spread twice as far', cost: 24, currency: 'wood', icon: '❊', role: 'spore', tier: 3 },
+  { id: 'blight', name: 'BLIGHT', blurb: 'your poison swallows a wider block', cost: 26, currency: 'acid', icon: '☢', role: 'spore', tier: 4 },
 
-  // --- SPORE: reach, then a fork between range and spread
-  { id: 'drift', name: 'DRIFT', blurb: 'hop further', cost: 9, icon: '❂', role: 'spore', tier: 1 },
-  { id: 'pod', name: 'POD', blurb: 'spores cost less', cost: 16, icon: '◍', role: 'spore', tier: 2, requires: 'drift' },
-  { id: 'burst', name: 'BURSTPOD', blurb: 'landings spread out', cost: 16, icon: '✺', role: 'spore', tier: 2, requires: 'drift' },
-  { id: 'gale', name: 'GALE', blurb: 'hop clean across the garden', cost: 24, icon: '≈', role: 'spore', tier: 3, requires: 'pod' },
-  { id: 'bloomburst', name: 'BLOOMBURST', blurb: 'landings spread twice as far', cost: 26, icon: '❊', role: 'spore', tier: 3, requires: 'burst' },
-
-  // --- FUNGAL: creep, then a fork between the swarm and the rot
-  { id: 'mycelium', name: 'MYCELIUM', blurb: 'creeps much faster', cost: 9, icon: '🍄', role: 'fungal', tier: 1 },
-  { id: 'enzyme', name: 'ENZYME', blurb: 'eating feeds you more', cost: 16, icon: '🧪', role: 'fungal', tier: 2, requires: 'mycelium' },
-  { id: 'bloomcap', name: 'BLOOMCAP', blurb: 'eaten tiles creep too', cost: 16, icon: '✿', role: 'fungal', tier: 2, requires: 'mycelium' },
+  // ---------------------------------------------------------------- FUNGAL
+  { id: 'mycelium', name: 'MYCELIUM', blurb: 'creeps much faster', cost: 9, currency: 'acid', icon: '🍄', role: 'fungal', tier: 1 },
+  { id: 'enzyme', name: 'ENZYME', blurb: 'eating feeds you more', cost: 14, currency: 'wood', icon: '🧪', role: 'fungal', tier: 2 },
+  { id: 'bloomcap', name: 'BLOOMCAP', blurb: 'eaten tiles creep too', cost: 14, currency: 'acid', icon: '✿', role: 'fungal', tier: 2 },
+  { id: 'putrefy', name: 'PUTREFY', blurb: 'chews through tiles far faster', cost: 16, currency: 'wood', icon: '⚱', role: 'fungal', tier: 2 },
+  { id: 'rot', name: 'ROT', blurb: 'the mycelium never stops', cost: 24, currency: 'wood', icon: '☣', role: 'fungal', tier: 3 },
+  { id: 'spawnsac', name: 'SPAWNSAC', blurb: 'insects live far longer', cost: 20, currency: 'wood', icon: '🥚', role: 'fungal', tier: 3 },
   /*
    * The insects are FUNGAL's endgame, and they are priced like it. Nothing else in
-   * the tree costs anything close — this is what a whole match of digesting other
+   * the game costs anything close — this is what a whole match of digesting other
    * people's gardens is FOR, and until you buy it the mycelium has no swarm at all.
    */
-  { id: 'brood', name: 'BROOD', blurb: 'the mycelium starts hatching insects', cost: 100, icon: '🐛', role: 'fungal', tier: 3, requires: 'enzyme' },
-  { id: 'rot', name: 'ROT', blurb: 'the mycelium never stops', cost: 26, icon: '☣', role: 'fungal', tier: 3, requires: 'bloomcap' },
-  { id: 'hive', name: 'HIVE', blurb: 'many more insects, far cheaper', cost: 24, icon: '🐝', role: 'fungal', tier: 4, requires: 'brood' },
+  { id: 'brood', name: 'BROOD', blurb: 'the mycelium starts hatching insects', cost: 100, currency: 'acid', icon: '🐛', role: 'fungal', tier: 4 },
+  // Says BROOD out loud: with no prerequisites to lock it, the blurb is the only
+  // thing standing between a player and a card that does nothing on its own.
+  { id: 'hive', name: 'HIVE', blurb: 'once BROOD hatches them: many more insects, far cheaper', cost: 24, currency: 'acid', icon: '🐝', role: 'fungal', tier: 4 },
 
-  // --- THORN: contact, then a fork between cheap bites and wide ones
-  { id: 'barbs', name: 'BARBS', blurb: 'eat much faster', cost: 9, icon: '✖', role: 'thorn', tier: 1 },
-  { id: 'feed', name: 'FEED', blurb: 'eating gives energy', cost: 16, icon: '🍖', role: 'thorn', tier: 2, requires: 'barbs' },
-  { id: 'swarm', name: 'SWARM', blurb: 'eating spreads twice as far', cost: 16, icon: '⁂', role: 'thorn', tier: 2, requires: 'barbs' },
-  { id: 'venom', name: 'VENOM', blurb: 'eating costs almost nothing', cost: 24, icon: '☠', role: 'thorn', tier: 3, requires: 'feed' },
-  { id: 'bramble', name: 'BRAMBLE', blurb: 'eating spreads three times as far', cost: 26, icon: '҉', role: 'thorn', tier: 3, requires: 'swarm' },
+  // ---------------------------------------------------------------- THORN
+  { id: 'barbs', name: 'BARBS', blurb: 'eat much faster', cost: 9, currency: 'acid', icon: '✖', role: 'thorn', tier: 1 },
+  { id: 'spike', name: 'SPIKE', blurb: 'your thorns are much tougher', cost: 12, currency: 'sun', icon: '✧', role: 'thorn', tier: 2 },
+  { id: 'feed', name: 'FEED', blurb: 'eating gives energy', cost: 14, currency: 'wood', icon: '🍖', role: 'thorn', tier: 2 },
+  { id: 'swarm', name: 'SWARM', blurb: 'eating spreads twice as far', cost: 14, currency: 'acid', icon: '⁂', role: 'thorn', tier: 2 },
+  { id: 'gorge', name: 'GORGE', blurb: 'every bite is a meal', cost: 20, currency: 'sun', icon: '🍯', role: 'thorn', tier: 3 },
+  { id: 'venom', name: 'VENOM', blurb: 'eating costs almost nothing', cost: 22, currency: 'acid', icon: '☠', role: 'thorn', tier: 3 },
+  { id: 'bramble', name: 'BRAMBLE', blurb: 'eating spreads three times as far', cost: 24, currency: 'wood', icon: '҉', role: 'thorn', tier: 3 },
 ];
 
-/** Techs this faction may ever take, in tree order. */
+/**
+ * Techs this faction may ever take.
+ *
+ * Three filters, and none of them is a prerequisite:
+ *  - it belongs to another faction;
+ *  - it provably does nothing for this one (`notFor`);
+ *  - it is priced in a purse this plant can never fill. FUNGAL and SPORE die on
+ *    sunlight, so a sun-priced card is not a hard buy for them, it is an impossible
+ *    one — and a card you can look at forever and never own is a trap, not a choice.
+ */
 export function techsFor(role: RoleId): TechDef[] {
-  /*
-   * Transitive, deliberately: a tech whose prerequisite this faction can never buy
-   * is just as unbuyable as one it is barred from outright.
-   *
-   * FUNGAL is why. Excluding the income upgrades left HEARTWOOD on its list saying
-   * "NEEDS COMPOST" — a card it could look at forever and never own. Resolving to a
-   * fixed point means barring one tech automatically bars everything downstream of
-   * it, so this cannot rot the next time an exclusion is added.
-   */
-  const offered = TECHS.filter(
-    (t) => (t.role === undefined || t.role === role) && !t.notFor?.includes(role),
+  const sunBlind = SUN_BLIND_ROLES.includes(role);
+  return TECHS.filter(
+    (t) =>
+      (t.role === undefined || t.role === role) &&
+      !t.notFor?.includes(role) &&
+      !(sunBlind && t.currency === 'sun'),
   );
-  const reachable = new Set<TechId>();
-  for (let pass = 0; pass < offered.length; pass++) {
-    let grew = false;
-    for (const t of offered) {
-      if (reachable.has(t.id)) continue;
-      if (t.requires && !reachable.has(t.requires)) continue;
-      reachable.add(t.id);
-      grew = true;
-    }
-    if (!grew) break;
-  }
-  return TECHS.filter((t) => reachable.has(t.id));
 }
 
 // Tuning for the effects above.
@@ -344,6 +468,34 @@ export const TECH_SOLAR_BONUS = 0.5;
 export const TECH_BARK_TOUGH = 2;
 export const TECH_FEED_ENERGY = 2;
 export const TECH_ENZYME_BONUS = 2;
+/** HUSK / SPIKE / WINDBORNE: flat multipliers on how long YOUR tiles take to eat. */
+export const TECH_HUSK_TOUGH = 1.5;
+export const TECH_SPIKE_TOUGH = 1.7;
+export const TECH_WINDBORNE_TOUGH = 1.8;
+/** TRELLIS: a cut runner rots at a quarter speed. */
+export const TECH_TRELLIS_WITHER = 0.25;
+/** PUTREFY: multiplier on FUNGAL's capture time. */
+export const TECH_PUTREFY_CAPTURE = 0.55;
+/** ACID VEINS: multiplier on everything your acid pools pay. */
+export const TECH_VEINS_MUL = 1.7;
+/** DEW: extra flat energy per second, on top of the baseline trickle. */
+export const TECH_DEW_ENERGY = 0.4;
+/** GORGE: energy per tile eaten, on top of FEED. */
+export const TECH_GORGE_ENERGY = 4;
+/** SPAWNSAC: multiplier on how long a hatched insect lives. */
+export const TECH_SPAWNSAC_LIFE = 2;
+/**
+ * BLIGHT: extra width and height on HOSTILE TAKEOVER's block.
+ *
+ * Two, not four. A 9x9 covers 26% of a 308-cell board where it covered 37% of the
+ * old 216-cell one, so +2 (11x11, 39%) restores the proportion the nuke was tuned
+ * at; +4 would put 55% of the garden under one repeatable 1-acid tap.
+ */
+export const TECH_BLIGHT_SIZE = 2;
+/** BULWARK: extra rings of enemy ground a defence clears. */
+export const TECH_BULWARK_RADIUS = 1;
+/** REFLEX: multiplier on the shared defence cooldown. */
+export const TECH_REFLEX_COOLDOWN = 0.5;
 
 // ============================================================ match
 
@@ -362,14 +514,20 @@ export interface Seat {
   /** null until this seat has drafted a plant. See `MatchPhase.draft`. */
   role: RoleId | null;
   /**
-   * Banked acid. The ONLY currency the tech tree accepts, for every faction.
+   * The three purses the tech tree accepts. See the note on `TechId`.
    *
    * Deliberately separate from energy: energy is the moment-to-moment budget for
    * taps, and tech used to compete with it directly, so every upgrade was paid for
-   * by not playing for a while. Acid comes only from `acid` tiles, which means the
-   * tech tree is gated behind map control rather than behind patience.
+   * by not playing for a while. These are paid ONLY by the ground you are holding,
+   * which puts the whole tree behind map control rather than behind patience — and
+   * three purses rather than one means WHICH ground you hold decides which half of
+   * your list you can actually reach.
    */
   acid: number;
+  /** Banked sunlight. Daylight only, and FUNGAL/SPORE can never earn a point of it. */
+  sun: number;
+  /** Banked timber. Anyone may hold a stand of wood, so this purse is never closed. */
+  wood: number;
   /** Seconds until this seat may repel again. 0 when ready. */
   repelCooldown: number;
   /**
@@ -379,7 +537,15 @@ export interface Seat {
    * faction colour cannot tell two gardens apart.
    */
   colour: string;
+  /**
+   * Total energy across ALL this seat's stores, and what they could hold.
+   *
+   * A convenience total for the HUD and the win check — it is NOT a purse. Energy is
+   * spent out of one network's stores (see `Net`), so holding 40 across two cut-off
+   * halves does not buy you a 40-energy push anywhere.
+   */
   energy: number;
+  cap: number;
   /** Live count of owned cells — drives the win check and the HUD bar. */
   tiles: number;
   alive: boolean;
@@ -473,6 +639,10 @@ export type BloomEvent =
   | { t: 'bite'; cell: number; seat: number; from: number }
   /** A seedling shrugged off an assault: `count` hostile claims/tiles pushed back. */
   | { t: 'repel'; cell: number; seat: number; count: number }
+  /** A nutrient store went up. */
+  | { t: 'built'; cell: number; seat: number }
+  /** A store changed hands with `fuel` energy in it. `from` lost the lot. */
+  | { t: 'looted'; cell: number; seat: number; from: number; fuel: number }
   /** HOSTILE TAKEOVER landed: `cell` is the centre, `cleared` tiles evaporated. */
   | { t: 'takeover'; cell: number; seat: number; cleared: number; seeded: number }
   | { t: 'eliminated'; seat: number }
@@ -515,8 +685,16 @@ export const INSECT_ENERGY_PER_SEC = 0.55;
  * the trickle stops the moment it holds a bed of its own.
  */
 export const SPORE_DRIFT_PER_SEC = 0.17;
-/** Acid per owned `acid` tile per second. The whole tech economy runs on this. */
+/** Acid per owned `acid` tile per second. The scarcest purse, and the most fought over. */
 export const ACID_PER_SEC = 0.42;
+/**
+ * Sun banked per owned `sun` tile per second, IN DAYLIGHT ONLY (ZENITH keeps it
+ * running after dark, exactly as it does for sun energy). Slower than acid per tile
+ * because there are more suns on a board than there are acid pools.
+ */
+export const SUN_BANK_PER_SEC = 0.3;
+/** Timber banked per owned `wood` tile per second. Paid to everyone who holds one. */
+export const WOOD_BANK_PER_SEC = 0.3;
 
 /**
  * Terrain multipliers on how long an attacker needs to take a tile.
@@ -563,10 +741,58 @@ export const TAKEOVER_SIZE = 9;
 /** Fraction of the cleared cells that come up as SPORE landings. */
 export const TAKEOVER_SEED_FRACTION = 0.34;
 export const START_ENERGY = 4;
-/*
- * There is no energy cap. Banking is a legitimate strategy: sit on your income and
- * spend it all at once on a push, a seedling, or the top of a tech branch.
+
+// ---------------------------------------------------------------- nutrient stores
+
+/**
+ * Energy is not a number in the sky. It is a physical thing, held in granaries that
+ * stand on the board, and everything follows from that:
+ *
+ *  - **It is capped.** One store holds STORE_CAP. When your network's stores are
+ *    full, income stops — you are not banking any more until you BUILD somewhere to
+ *    put it. Idling therefore costs you, and expanding is how you keep earning.
+ *  - **It is local.** A store belongs to the network it stands in, so a cut garden
+ *    is two economies. See `Net`.
+ *  - **It is stealable.** Take a store and you take everything in it (`STEAL_CAP`),
+ *    which makes a granary the most valuable square on the board after a seedling
+ *    and makes a raid behind the lines a real play instead of a nuisance.
+ *  - **It is a supply line.** A tap costs more the further it is from a store, so
+ *    the way to attack something far away is to build a granary near it first.
+ *
+ * Every seedling comes with one already built, holding START_ENERGY.
  */
+export const STORE_CAP = 25;
+/** Energy to build another. Paid out of the network that will own it. */
+export const STORE_COST = 8;
+/**
+ * Energy every ordinary tile can hold in its own tissue, granary or no granary.
+ *
+ * Small, and load-bearing. Without it a network with no store had a capacity of
+ * zero, which meant it earned nothing, which meant it could never afford the store
+ * that would let it earn — every spore landing, every infected clump and every
+ * re-grown limb was born permanently inert. Measured: it took SPORE from a third of
+ * the board to five percent and no wins in forty matches.
+ *
+ * So a clump of plants holds sap between them. Two per tile is the smallest number
+ * that works: it is exactly one spore landing, so a single-tile beachhead can act
+ * once and is therefore not stillborn, and a dozen-tile clump can save up a granary
+ * — which is the bootstrap. It is nowhere near enough to run a war on, which is why
+ * you still build, and it caps out long before a real army does.
+ */
+export const SAP_PER_TILE = 2;
+/**
+ * Extra cost per cell of distance from the nearest store, as a fraction of the base
+ * price. Applies to growing, attacking AND defending — everything is harder to do
+ * at the end of a long supply line.
+ */
+export const DIST_COST_PER_CELL = 0.12;
+/** ...and the ceiling on that, so the far corner of the map is expensive, not impossible. */
+export const DIST_COST_MAX = 2.5;
+/**
+ * Fraction of a captured store's contents the raider keeps. All of it — a granary
+ * that survived being taken would not be worth taking.
+ */
+export const STEAL_CAP = 1;
 /**
  * Energy per owned tile per second. Territory is now an economy, not just a score:
  * a bigger network funds a faster one, so taking ground compounds.
@@ -576,31 +802,50 @@ export const ENERGY_PER_TILE = 0.022;
 export const HOME_CAPTURE_TIME = 6;
 
 /**
- * Tap your OWN seedling to repel: it costs this much and shoves the enemy back.
+ * DEFENCE — tap ANY tile you own to shove the enemy off the ground around it.
  *
- * The counter-play to a seedling assault — but deliberately a DELAYING one, not an
- * answer. The attacker holds the advantage here on purpose: they chose the moment,
- * they are looking at the fight, and nothing warns the defender that their heart is
- * being eaten. A repel that simply erased an assault would mean a base could never
- * fall to anyone whose opponent happened to be paying attention, which turns the
- * most decisive play in the game into a test of who was looking at their phone.
+ * Two separate things happen, and they are tuned against each other:
  *
- * So a repel BUYS TIME. It knocks the assault back part way and then goes on
- * cooldown, and sustained pressure gets through: against a defender repelling on
- * every cooldown, a seedling still falls in roughly twenty seconds instead of six.
+ *  1. Enemy TILES inside the kill ring are destroyed outright — burned back to bare
+ *     soil, not captured. This is the part with teeth: a defence deletes a lodgement
+ *     rather than politely asking it to leave, and because the ground comes up
+ *     NEUTRAL it is a denial, not a free harvest. Whoever taps first gets the empty
+ *     ground next.
+ *  2. Enemy CLAIMS in progress inside the (wider) knockback ring are pushed back a
+ *     fraction, exactly as they always were.
  *
- * A repel that finds nothing to push costs nothing, so mashing it is not a trap.
+ * Splitting it that way is deliberate. A defence that also erased an assault in
+ * progress would mean a seedling could never fall to anyone whose opponent happened
+ * to be paying attention, which turns the most decisive play in the game into a test
+ * of who was looking at their phone. So the numbers on a seedling siege are
+ * unchanged: the attacker still wins that exchange on time.
+ *
+ * Every tile defends, not just the seedling — a garden is a thing that fights back
+ * everywhere — but a seedling defends a ring wider than an ordinary tile does.
+ *
+ * A defence that finds nothing to push costs nothing and starts no cooldown, so
+ * mashing it is pointless rather than ruinous.
  */
 export const REPEL_COST = 2;
-/** Manhattan radius around the seedling in which hostile claims are knocked back. */
+/**
+ * ...plus this much per tile destroyed. Burning twelve tiles off your doorstep is a
+ * real play and it costs real energy; if you cannot pay for all of them you clear
+ * the nearest ones you CAN afford rather than being refused outright.
+ */
+export const REPEL_KILL_COST = 1;
+/** Manhattan radius in which hostile claims in progress are knocked back. */
 export const REPEL_RADIUS = 2;
+/** Manhattan radius in which enemy TILES are destroyed, from an ordinary tile... */
+export const REPEL_KILL_RADIUS = 1;
+/** ...and from a seedling, which defends itself far more fiercely. */
+export const REPEL_HOME_KILL_RADIUS = 2;
 /**
  * Fraction of an assault's progress a repel removes. Deliberately less than the
  * attacker regains before the cooldown is up — see the note above.
  */
 export const REPEL_KNOCKBACK = 0.35;
-/** Seconds before that seat may repel again. */
-export const REPEL_COOLDOWN = 3;
+/** Seconds before that seat may defend again, from anywhere. One shared cooldown. */
+export const REPEL_COOLDOWN = 4;
 
 /**
  * Extra energy per friendly neighbour the DEFENDER has around the tile you are

@@ -226,6 +226,7 @@ export class Connection {
       msg.t === 'buyTech' ||
       msg.t === 'hatch' ||
       msg.t === 'takeover' ||
+      msg.t === 'build' ||
       msg.t === 'pact'
     ) {
       return;
@@ -289,6 +290,10 @@ export class Connection {
 
   takeover(cell: number): void {
     this.send({ t: 'takeover', cell });
+  }
+
+  build(cell: number): void {
+    this.send({ t: 'build', cell });
   }
 
   pact(seat: number): void {

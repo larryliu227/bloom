@@ -9,35 +9,67 @@ the cut withers — you kill ground you never touched.
 Cutting is the same tap as growing, so there is one interaction and nothing to learn twice.
 
 ```
-        ┌────────────────────────┐
-        │ · · · ▓ ▓ · · ☀ · · · ·│   ▓ rock — the chokepoints
-        │ · ● ● ● ▓ · · · 🜁 · · ·│   ☀ sun    — feeds the photosynthesisers
-        │ · ● ✿ ● · · ▓ ▓ · · · ·│   ▤ wood   — feeds FUNGAL, braces its holder
-        │ · ● · ╳ ← the cut      │   ⁙ insect — feeds SPORE, rots everyone else
-        │ · · · ░ ░ ░ ← withering│   🜁 acid   — the ONLY currency tech accepts
-        │ · · ▤ ░ ░ · · ⁙ · · · ·│   ✿ seedling — lose it, lose everything
-        │ · · · · · · · ✿ ○ ○ · ·│   12 x 18, the whole board always on screen
-        └────────────────────────┘
+        ┌────────────────────────────┐
+        │ · · · ▓ ▓ · · ☀ · · · · · ·│   ▓ rock — the chokepoints
+        │ · ● ● ● ▓ · · · 🜁 · · · · ·│   ☀ sun    — feeds AND banks, daylight only
+        │ · ● ✿ ● · · ▓ ▓ · · · · · ·│   ▤ wood   — feeds FUNGAL, banks for everyone
+        │ · ● 🛢 ╳ ← the cut         │   ⁙ insect — feeds SPORE, rots everyone else
+        │ · · · ░ ░ ░ ← withering    │   🜁 acid   — the deepest tech purse
+        │ · · ▤ ░ ░ · · ⁙ · · · · · ·│   ✿ seedling — lose it, lose everything
+        │ · · · · · · · ✿ ○ ○ · · · ·│   🛢 store  — where your energy physically is
+        │ · · · · · · · · · · · · · ·│   14 x 22, the whole board always on screen
+        └────────────────────────────┘
 ```
 
-## Four larders, and nobody eats from all of them
+## Three purses, and nobody can fill all of them
 
 Every wage in the game is paid by a tile somebody is holding. There is no free trickle
 for the scavengers and no way to buy tech without fighting for ground.
 
-| tile | pays | and |
+| tile | pays energy to | and banks |
 |---|---|---|
-| **☀ sun** | vine, moss, thorn — daylight only | **kills** fungal and spore on contact |
-| **▤ wood** | fungal, and nothing else pays it | braces its holder ×2 — except THORN, ×0.5 |
-| **⁙ insect** | spore, and nothing else pays it | rots its holder ×0.4 (fungal ×0.75) — but SPORE on a grub bed is ×8 |
-| **🜁 acid** | everyone, and it is the only thing the **32-tech tree** accepts | three or four cells decide who upgrades at all |
+| **☀ sun** | vine, moss, thorn — daylight only | **☀ sun**, the purse FUNGAL and SPORE can never open — sunlight kills them |
+| **▤ wood** | fungal, and nothing else pays it | **▤ wood**, which anybody can hold; braces its holder ×2, except THORN ×0.5 |
+| **⁙ insect** | spore, and nothing else pays it | — rots its holder ×0.4 (fungal ×0.75), but SPORE on a grub bed is ×8 |
+| **🜁 acid** | nobody | **🜁 acid**, the scarcest ground on the board and the deepest purse |
+
+## The tech tree has no tech tree
+
+**50 upgrades, and two requirements to buy any of them: be alive, and have the money.**
+No prerequisites, no chains, no card that tells you what it needs first. A tier-4 card is
+a legal opening move for anyone who can somehow pay for it.
+
+The gate moved onto the map instead. Each card is priced in one of the three purses above,
+and which half of your list you can reach is decided by which ground you are standing on —
+something you can see, rather than a rule you have to read.
+
+## Energy is a physical thing
+
+It lives in **nutrient stores**: granaries that stand on the board. Your seedling comes
+with one. Everything else you build, for 8 energy, on any tile you hold.
+
+- **It is capped.** A full store earns nothing. Income *stops* until you spend or build,
+  so idling costs you and expanding is how you keep earning.
+- **It is local.** A store belongs to the network it stands in — so **a garden cut in half
+  is two economies**, immediately, each earning into its own granaries and spending only
+  what it has. A cut hurts now even when nothing withers.
+- **It is stealable.** Take a granary and you take everything in it. A raid behind the
+  lines is a real play, and building one on your front line is a gamble.
+- **It is a supply line.** Every tap — planting, eating, *defending* — costs more the
+  further it is from a store, up to 2.5×. The way to attack something far away is to build
+  a granary near it first.
+
+**A cut-off pocket with a granary in it does not die.** It goes on earning, and it goes on
+defending itself — it simply cannot grow or attack ever again. Taking that ground means
+chewing through it tile by tile. Cut off a limb with *no* store on it and it withers
+exactly as it always did.
 
 **HOSTILE TAKEOVER** — SPORE's item, **1 acid**. Instantly evaporates every tile in a 9×9
-block and sprinkles the ruins with landings. Priced at one so it is a weapon you fire,
-not a thing you save up for. FUNGAL and SPORE are immune, so it deletes
-the photosynthesisers out of a third of the board and leaves the rot standing in it.
-Seedlings survive: a nuke that could take a heart from nine cells away would make the
-six-second seedling rule meaningless.
+block, granaries and all, and sprinkles the ruins with landings. Priced at one so it is a
+weapon you fire, not a thing you save up for. FUNGAL and SPORE are immune — and so is a
+MOSS that has bought STONEMOSS — so it deletes the photosynthesisers out of a quarter of
+the board and leaves the rot standing in it. Seedlings survive: a nuke that could take a
+heart from nine cells away would make the six-second seedling rule meaningless.
 
 ## Five factions, differentiated by verb
 
@@ -53,26 +85,31 @@ Not by stat block. From an identical opening position they produce
 | **FUNGAL** | never taps to grow — the mycelium creeps on its own. It does not photosynthesise: **eating is its only income**, so its bite is free and everything else it does is paid for out of somebody else's garden. Roots anywhere, so it cannot be cut |
 
 Plus: territory pays energy (ground compounds), a 60-second day/night cycle, insects that
-walk and eat on their own, mutual-consent pacts, and a 31-tech forking tree — two shared
-chains you cannot both afford, and a faction branch that splits in two.
+walk and eat on their own, and mutual-consent pacts.
 
-FUNGAL's endgame is the swarm, and it is locked behind **BROOD (100)** — roughly fifty
-digested tiles. Insects do not exist until it is bought.
+FUNGAL's endgame is the swarm, and it is locked behind **BROOD (100 acid)** — roughly a
+match's worth of digesting. Insects do not exist until it is bought.
 
 Conquer a seedling and it becomes **yours**: a real second root that feeds the ground
 around it. SPORE is the exception to losing one — its landings root themselves, so it
 plays on for as long as it holds a single tile.
 
-**Tap your own seedling to repel.** Two energy: knocks an assault on your base part of
-the way back and shoves anyone on your doorstep to bare soil, then goes on a 3-second
-cooldown.
+## Defence
 
-It buys time, it does not buy safety — **the attacker holds the advantage on purpose.**
-They picked the moment, they are watching the fight, and nothing warns you that your heart
-is being eaten. Measured: an undefended seedling falls in 6 seconds, and one whose owner
-repels on every single cooldown falls in 14. Repel early enough and you break the claim
-outright; repel late and you are only delaying. A repel with nothing to push costs
-nothing.
+**Tap any tile you own.** Two energy plus one per tile burned:
+
+- every enemy **tile** in the ring around it is **destroyed** — back to bare soil, not
+  captured, so it is a denial rather than a free harvest. A seedling clears two rings, an
+  ordinary tile clears one.
+- every enemy **claim** in progress nearby is knocked part of the way back.
+
+Then the whole garden goes on a 4-second cooldown, and the price is multiplied by how far
+that tile is from one of your granaries. A defence with nothing to push costs nothing.
+
+Splitting it that way is deliberate: burning a lodgement off your ground is decisive, but
+an assault already under way is only *delayed*, so **the attacker still holds the advantage
+during a siege on purpose.** They picked the moment, they are watching the fight, and
+nothing warns you that your heart is being eaten.
 
 ## The draft
 
@@ -137,7 +174,7 @@ players and sockets.
 
 ## Architecture
 
-Authoritative server at 20 Hz. The board is small enough (216 cells) that the server ships
+Authoritative server at 20 Hz. The board is small enough (308 cells) that the server ships
 the **whole match state** in every snapshot, which deletes an entire class of desync bug —
 so there is no prediction and no reconciliation anywhere in the client.
 
@@ -151,8 +188,8 @@ client/   canvas2d board + input, the socket, the screens
 client for solo play. There is deliberately no second implementation of "what does a tap
 do" — that is how the highlight under your thumb can never disagree with the outcome.
 
-The one gameplay input is `tap`. Everything else the player can do (`buyTech`, `hatch`,
-`pact`) is a deliberate, occasional act. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+The one gameplay input is `tap`. Everything else the player can do (`buyTech`, `build`,
+`hatch`, `pact`) is a deliberate, occasional act. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 and [docs/BLOOM.md](docs/BLOOM.md).
 
 Stack: Node + TypeScript + `ws` + Vite + Canvas2D. One runtime dependency.

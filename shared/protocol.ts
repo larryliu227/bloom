@@ -10,7 +10,7 @@
  *    `takeover` and `pact` are the deliberate acts around it. There is no movement, no
  *    aim, no prediction and therefore no reconciliation — the client says what it
  *    wants and the server decides whether it was even legal.
- * 2. The board is small (12x18 cells), so the server ships the WHOLE match
+ * 2. The board is small (14x22 cells), so the server ships the WHOLE match
  *    state every tick in `match`. It compresses to almost nothing over
  *    permessage-deflate and it deletes an entire class of desync bugs.
  *
@@ -91,8 +91,13 @@ export type ClientMsg =
   // gameplay — this is the entire input surface of the game
   /** Tap one cell. Expansion, attack and puzzle move, all at once. */
   | { t: 'tap'; cell: number }
-  /** Buy an upgrade. The server enforces the tech tree, not the UI. */
+  /** Buy an upgrade. The server enforces what is buyable, not the UI. */
   | { t: 'buyTech'; tech: TechId }
+  /**
+   * Build a nutrient store on one of your own tiles. The only construction in the
+   * game, and the one thing that decides where your energy physically lives.
+   */
+  | { t: 'build'; cell: number }
   /** FUNGAL only: spend energy to hatch an insect somewhere on your network. */
   | { t: 'hatch' }
   /**
@@ -125,7 +130,7 @@ export type ServerMsg =
   | { t: 'matchStart'; mode: GameMode; seed: number; seat: number; level: number }
   /**
    * The authoritative whole-board state, at SNAPSHOT_RATE. Deliberately not a
-   * delta: 216 cells of small integers gzip to a couple of hundred bytes.
+   * delta: 308 cells of small integers gzip to a couple of hundred bytes.
    */
   | { t: 'match'; state: MatchState }
   | { t: 'matchEnd'; result: MatchResult }

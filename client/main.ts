@@ -12,8 +12,8 @@
  * Nothing else in here knows which.
  */
 
-import type { MatchState, RoleId, TechDef, TechId } from '@shared/bloom.js';
-import { INSECT_COST, TAKEOVER_COST, TECHS, isAllied, isDay, techsFor } from '@shared/bloom.js';
+import type { Currency, MatchState, RoleId, TechDef, TechId } from '@shared/bloom.js';
+import { CURRENCIES, CURRENCY_ICON, INSECT_COST, STORE_COST, TAKEOVER_COST, isAllied, isDay, techsFor } from '@shared/bloom.js';
 import { Garden, MAP_BLURBS, MAP_NAMES } from '@shared/garden.js';
 import { ROLE_LIST, getRole } from '@shared/rules.js';
 import type { LobbyState, MatchResult } from '@shared/protocol.js';
@@ -40,6 +40,8 @@ interface Session {
   tap(cell: number): void;
   /** SPORE only: HOSTILE TAKEOVER centred on `cell`. */
   takeover(cell: number): void;
+  /** Put a nutrient store on one of your own tiles. */
+  build(cell: number): void;
   buyTech(id: TechId): void;
   hatch(): void;
   pact(seat: number): void;
@@ -99,6 +101,9 @@ class SoloSession implements Session {
   takeover(cell: number): void {
     this.garden.hostileTakeover(0, cell);
   }
+  build(cell: number): void {
+    this.garden.buildStore(0, cell);
+  }
   pact(seat: number): void {
     this.garden.setPact(0, seat);
   }
@@ -149,6 +154,9 @@ class OnlineSession implements Session {
   takeover(cell: number): void {
     this.conn.takeover(cell);
   }
+  build(cell: number): void {
+    this.conn.build(cell);
+  }
   pact(seat: number): void {
     this.conn.pact(seat);
   }
@@ -197,18 +205,28 @@ class Bloom {
   private draftYou: HTMLElement | null = null;
   private wasDrafting = false;
   private acidEl: HTMLElement | null = null;
+  private sunEl: HTMLElement | null = null;
+  private woodEl: HTMLElement | null = null;
   private takeoverBtn: HTMLButtonElement | null = null;
-  /** True while HOSTILE TAKEOVER is waiting for a target. */
-  private arming = false;
+  private buildBtn: HTMLButtonElement | null = null;
+  /**
+   * Which item, if any, is waiting for a target on the board.
+   *
+   * Two things arm now, and they must be mutually exclusive: firing a 9x9 nuke when
+   * you meant to put up a granary is not a mistake anyone should be able to make.
+   */
+  private arming: null | 'takeover' | 'build' = null;
 
   constructor(overlay: HTMLElement) {
     this.overlay = overlay;
     this.view = new BoardView({
       onTap: (cell) => this.session?.tap(cell),
       onArmedTap: (cell) => {
-        // One shot: fire, then disarm so a stray second tap does not cost 10 acid.
-        this.arming = false;
-        this.session?.takeover(cell);
+        // One shot: fire, then disarm so a stray second tap does not spend again.
+        const what = this.arming;
+        this.arming = null;
+        if (what === 'takeover') this.session?.takeover(cell);
+        else if (what === 'build') this.session?.build(cell);
         this.refreshArmed();
       },
       onSever: () => {},
@@ -521,6 +539,10 @@ class Bloom {
     this.resultShown = false;
     this.allyRows = [];
     this.notice = '';
+    // Never carry a live target cursor into a new match — the buttons it belonged to
+    // have just been thrown away and rebuilt.
+    this.arming = null;
+    this.view.setArmed(null);
     this.overlay.appendChild(this.hudBar());
     this.overlay.appendChild(this.techPanel());
     this.overlay.appendChild(this.allyPanelEl());
@@ -559,8 +581,22 @@ class Bloom {
     const bar = el('div', 'hud');
     const back = el('button', 'hud-back', '←');
     back.addEventListener('click', () => this.leaveMatch());
+    /*
+     * Energy, then the three tech purses, in one compact group.
+     *
+     * All four are on screen at once and never hidden, because "can I afford that
+     * card" is a question you ask while looking at the BOARD — the whole point of
+     * three purses is that you can see which ground you need to go and take.
+     */
     this.energyEl = el('span', 'hud-energy', '0');
     this.acidEl = el('span', 'hud-acid', '0');
+    this.sunEl = el('span', 'hud-sun', '0');
+    this.woodEl = el('span', 'hud-wood', '0');
+    const purse = el('div', 'hud-purse');
+    purse.appendChild(this.energyEl);
+    purse.appendChild(this.acidEl);
+    purse.appendChild(this.sunEl);
+    purse.appendChild(this.woodEl);
     const tech = el('button', 'hud-tech');
     tech.appendChild(el('span', 'hud-tech-icon', '🌱'));
     tech.appendChild(el('span', 'hud-tech-label', 'TECH'));
@@ -589,13 +625,27 @@ class Bloom {
     this.takeoverBtn.appendChild(el('span', 'hud-act-icon', '☠'));
     this.takeoverBtn.appendChild(el('span', 'hud-act-cost', String(TAKEOVER_COST)));
     this.takeoverBtn.addEventListener('click', () => {
-      this.arming = !this.arming;
+      this.arming = this.arming === 'takeover' ? null : 'takeover';
+      this.refreshArmed();
+    });
+
+    /*
+     * BUILD A STORE. Arms exactly like the nuke does, because it is the same shape of
+     * decision: the button says "I want one", the board says WHERE, and where is the
+     * entire content of the choice — a granary at the front is a supply line, the
+     * same granary at home is a bank vault nobody can reach.
+     */
+    this.buildBtn = el('button', 'hud-act') as HTMLButtonElement;
+    this.buildBtn.appendChild(el('span', 'hud-act-icon', '🛢'));
+    this.buildBtn.appendChild(el('span', 'hud-act-cost', String(STORE_COST)));
+    this.buildBtn.addEventListener('click', () => {
+      this.arming = this.arming === 'build' ? null : 'build';
       this.refreshArmed();
     });
 
     bar.appendChild(back);
-    bar.appendChild(this.energyEl);
-    bar.appendChild(this.acidEl);
+    bar.appendChild(purse);
+    bar.appendChild(this.buildBtn);
     bar.appendChild(this.hatchBtn);
     bar.appendChild(this.takeoverBtn);
     bar.appendChild(ally);
@@ -606,8 +656,14 @@ class Bloom {
   /**
    * The tech tree, as its own screen behind a button.
    *
-   * Shared roots first, then this faction's own branch — laid out by tier so the
-   * commitment is visible: a tier-2 card is dimmed until its parent is owned.
+   * A shop floor, not a ladder. There are no prerequisites, so there is nothing to
+   * draw connectors between and no card that has to explain what it NEEDS first —
+   * every card is either affordable or it is not, and the only thing standing
+   * between you and a tier-4 card is the ground you are holding.
+   *
+   * So the layout is a plain wrapping grid, cheapest band first, grouped into the
+   * shared cards and this faction's own. That fits a phone without sideways
+   * scrolling, which the old tier-column row did not once the tree got this big.
    */
   private techPanel(): HTMLElement {
     const panel = el('div', 'techpanel hidden');
@@ -617,41 +673,29 @@ class Bloom {
     close.addEventListener('click', () => this.toggleTech(false));
     head.appendChild(close);
     panel.appendChild(head);
+    panel.appendChild(
+      el('div', 'techpanel-group', 'BUY ANYTHING, IN ANY ORDER — IF YOU CAN PAY FOR IT'),
+    );
+    // What the three prices on the cards actually mean, in one line.
+    const purses = el('div', 'tech-purses');
+    for (const cur of CURRENCIES) purses.appendChild(el('span', `tech-purse cur-${cur}`, PURSE_LABEL[cur]));
+    panel.appendChild(purses);
 
     this.techBtns = [];
     const list = techsFor(this.role ?? 'vine');
+    const byCost = (a: TechDef, b: TechDef) => a.tier - b.tier || a.cost - b.cost;
 
-    /*
-     * Polytopia-style: each branch is a ROW that reads left to right, tier by tier,
-     * with a connector between a tech and the one it unlocks. The shape of the tree
-     * is the explanation — you can see that CANOPY sits behind two other things
-     * without reading a word about prerequisites.
-     */
-    const branches: { label: string; items: TechDef[] }[] = [];
-    const shared = list.filter((t) => !t.role);
-    branches.push({ label: 'ROOTS', items: shared });
-    branches.push({
-      label: (this.role ?? 'vine').toUpperCase(),
-      items: list.filter((t) => t.role).sort((a, b) => a.tier - b.tier),
-    });
+    const branches: { label: string; items: TechDef[] }[] = [
+      { label: 'ROOTS — EVERY PLANT', items: list.filter((t) => !t.role).sort(byCost) },
+      { label: (this.role ?? 'vine').toUpperCase(), items: list.filter((t) => t.role).sort(byCost) },
+    ];
 
     for (const br of branches) {
+      if (br.items.length === 0) continue;
       panel.appendChild(el('div', 'techpanel-group', br.label));
-      const row = el('div', 'tech-branch');
-      const byTier = new Map<number, TechDef[]>();
-      for (const t of br.items) {
-        const bucket = byTier.get(t.tier) ?? [];
-        bucket.push(t);
-        byTier.set(t.tier, bucket);
-      }
-      const tiers = [...byTier.keys()].sort((a, b) => a - b);
-      tiers.forEach((tier, ti) => {
-        if (ti > 0) row.appendChild(el('div', 'tech-link', ''));
-        const col = el('div', 'tech-tier');
-        for (const t of byTier.get(tier) ?? []) col.appendChild(this.techCard(t));
-        row.appendChild(col);
-      });
-      panel.appendChild(row);
+      const grid = el('div', 'tech-branch');
+      for (const t of br.items) grid.appendChild(this.techCard(t));
+      panel.appendChild(grid);
     }
     panel.addEventListener('click', (e) => {
       if (e.target === panel) this.toggleTech(false);
@@ -661,21 +705,16 @@ class Bloom {
   }
 
   private techCard(t: TechDef): HTMLButtonElement {
-    const b = el('button', 'tech-node') as HTMLButtonElement;
+    const b = el('button', `tech-node cur-${t.currency}`) as HTMLButtonElement;
     b.appendChild(el('span', 'tech-icon', t.icon));
     b.appendChild(el('span', 'tech-name', t.name));
     b.appendChild(el('span', 'tech-blurb', t.blurb));
-    b.appendChild(el('span', 'tech-cost', String(t.cost)));
-    b.appendChild(el('span', 'tech-lock', '🔒'));
     /*
-     * Name the prerequisite on locked cards. The tree forks now — two tier-2s off
-     * one opener, each with its own tier-3 — and a column of cards with a generic
-     * connector between columns cannot show WHICH tier-2 unlocks which tier-3.
+     * Price AND purse, on every card. With three currencies in play a bare number is
+     * ambiguous — 14 acid and 14 sun are wildly different asks depending on what you
+     * are standing on — so the glyph is part of the price, never a separate legend.
      */
-    if (t.requires) {
-      const req = TECHS.find((x) => x.id === t.requires);
-      b.appendChild(el('span', 'tech-req', `NEEDS ${req?.name ?? t.requires}`));
-    }
+    b.appendChild(el('span', 'tech-cost', `${t.cost}${CURRENCY_ICON[t.currency]}`));
     // No optimistic `owned` class: the seat's tech list arrives in the next
     // snapshot, and online the purchase might legitimately have been refused.
     b.addEventListener('click', () => this.session?.buyTech(t.id));
@@ -690,9 +729,10 @@ class Bloom {
     this.overlay.appendChild(this.techPanel());
   }
 
-  /** Reflect the armed item on the button and the board. */
+  /** Reflect the armed item on the buttons and the board. */
   private refreshArmed(): void {
-    this.takeoverBtn?.classList.toggle('armed', this.arming);
+    this.takeoverBtn?.classList.toggle('armed', this.arming === 'takeover');
+    this.buildBtn?.classList.toggle('armed', this.arming === 'build');
     this.view.setArmed(this.arming);
   }
 
@@ -930,32 +970,62 @@ class Bloom {
 
   private refreshHud(state: MatchState, session: Session): void {
     const me = state.seats[session.mySeat];
-    if (this.energyEl) this.energyEl.textContent = me ? String(Math.floor(me.energy)) : '0';
+    // Energy reads as stored/capacity: when those two meet, income has STOPPED and
+    // the only cure is another granary. That has to be visible without opening
+    // anything, because it is the moment the game asks you to spend or build.
+    if (this.energyEl) {
+      this.energyEl.textContent = me ? `${Math.floor(me.energy)}/${Math.floor(me.cap)}` : '0';
+      this.energyEl.classList.toggle('full', !!me && me.cap > 0 && me.energy >= me.cap - 0.5);
+    }
     if (this.acidEl) this.acidEl.textContent = me ? String(Math.floor(me.acid)) : '0';
+    if (this.sunEl) this.sunEl.textContent = me ? String(Math.floor(me.sun)) : '0';
+    if (this.woodEl) this.woodEl.textContent = me ? String(Math.floor(me.wood)) : '0';
     if (this.takeoverBtn) {
       // SPORE's item, and only SPORE's.
       const canCast = me?.role === 'spore';
       this.takeoverBtn.classList.toggle('hidden', !canCast);
       this.takeoverBtn.disabled = !canCast || !me || me.acid < TAKEOVER_COST;
-      if (this.arming && this.takeoverBtn.disabled) {
-        this.arming = false;
+      if (this.arming === 'takeover' && this.takeoverBtn.disabled) {
+        this.arming = null;
+        this.refreshArmed();
+      }
+    }
+    if (this.buildBtn) {
+      /*
+       * Affordability here is the SEAT total, which is a deliberate half-truth: the
+       * real answer is per network and the player is about to point at one. Showing
+       * the button as live whenever any of your networks could pay is the honest
+       * version of "you can build somewhere" — the server refuses the ones that
+       * cannot, and the board draws which tiles are legal while you aim.
+       */
+      this.buildBtn.disabled = !me || me.energy < STORE_COST;
+      if (this.arming === 'build' && this.buildBtn.disabled) {
+        this.arming = null;
         this.refreshArmed();
       }
     }
 
-    // Grey out anything unaffordable so a child can see what is reachable. The
-    // owned set comes off the seat, which means it is the server's answer online.
+    /*
+     * Grey out anything unaffordable so a child can see what is reachable.
+     *
+     * Unaffordable is now the ONLY reason a card is out of reach — nothing is locked
+     * behind anything else — so a dim card means exactly one thing: go and take the
+     * ground that fills that purse. The owned set and the purses both come off the
+     * seat, which means online they are the server's answer, not a guess.
+     */
     const owned = new Set(me?.techs ?? []);
+    const purse: Record<Currency, number> = {
+      acid: me?.acid ?? 0,
+      sun: me?.sun ?? 0,
+      wood: me?.wood ?? 0,
+    };
     let affordable = 0;
     for (const t of this.techBtns) {
       const have = owned.has(t.def.id);
-      const locked = !!t.def.requires && !owned.has(t.def.requires);
-      // Tech is bought with ACID now, never with energy.
-      const canBuy = !have && !locked && !!me && me.acid >= t.def.cost;
+      const canBuy = !have && purse[t.def.currency] >= t.def.cost;
       if (canBuy) affordable++;
       t.el.classList.toggle('owned', have);
-      t.el.classList.toggle('locked', locked);
-      t.el.disabled = have || locked || !canBuy;
+      t.el.disabled = have || !canBuy;
     }
     /*
      * The hatch button exists only once BROOD is bought — insects are locked behind
@@ -990,6 +1060,13 @@ class Bloom {
     }
   }
 }
+
+/** What each purse is, in three words. Shown once at the top of the tech screen. */
+const PURSE_LABEL: Record<Currency, string> = {
+  acid: '🜁 ACID POOLS',
+  sun: '☀ SUN, IN DAYLIGHT',
+  wood: '▤ WOOD STANDS',
+};
 
 const REASONS: Record<string, string> = {
   home: 'took the last seedling',

@@ -2,7 +2,7 @@
  * BLOOM — the board. Renderer and input, one canvas, no camera.
  *
  * Hard rules this file exists to enforce:
- *  - the entire 12x18 grid is on screen at all times. No pan, no zoom, no scroll.
+ *  - the entire 14x22 grid is on screen at all times. No pan, no zoom, no scroll.
  *    A child must never be lost, so there is nothing to get lost in.
  *  - touch is the primary input. pointerdown lights every cell you may legally
  *    poke; you may slide to change your mind; pointerup commits. That loop teaches
@@ -14,11 +14,14 @@
  */
 
 import type { Board, MatchState, RoleDef } from '@shared/bloom.js';
-import { TAKEOVER_SIZE } from '@shared/bloom.js';
+import { BOARD_H, BOARD_W, STORE_CAP, TAKEOVER_SIZE } from '@shared/bloom.js';
 import { fitCanvas, hash01, roundRect } from '../ui/dom.js';
 import { INK, clamp01, darken, drained, ease, lighten, mix, rgba } from './palette.js';
-import { getRole, isBeingTaken, legalCells, legalTap, neighbours, seatColour, xy } from '@shared/rules.js';
+import { getRole, isBeingTaken, legalCells, legalTap, neighbours, repelBonus, repelHits, seatColour, xy } from '@shared/rules.js';
 import type { TapKind } from '@shared/rules.js';
+
+/** Which item is waiting for a board target, if any. */
+export type ArmedKind = null | 'takeover' | 'build';
 
 export interface BoardCallbacks {
   /** A committed tap. The caller sends it; the server decides what it meant. */
@@ -51,8 +54,24 @@ const PULSE_HZ = 0.55;
 const PULSE_CELLS_PER_SEC = 6;
 /** Grey-out wave duration, seconds. Long enough to watch, short enough to hurt. */
 const SEVER_WAVE = 0.55;
+/**
+ * How far toward ash a cut-off-but-supplied pocket fades. Deliberately partial: it
+ * is not fed, so it must not look fed, but it is not dying either.
+ */
+const BESIEGED_FADE = 0.5;
 /** Slop radius, in cell widths, for snapping a sloppy thumb to a legal target. */
 const SNAP_RADIUS = 0.75;
+/**
+ * What each kind of tap is drawn in. Four verbs, four colours, never mixed: red
+ * takes ground off somebody, violet lands a spore, white plants, and cyan is the
+ * defence — the only one of the four that destroys rather than claims.
+ */
+const TAP_TINT: Record<TapKind, string> = {
+  grow: '#f6ffe8',
+  attack: '#ff5a3c',
+  spore: '#c46bff',
+  repel: '#5ce1ff',
+};
 
 export class BoardView {
   readonly root: HTMLElement;
@@ -91,7 +110,7 @@ export class BoardView {
   private denyCell = -1;
   private denyT = 0;
   /** An item is waiting for a target: taps go to `onArmedTap`, legality is skipped. */
-  private armed = false;
+  private armed: ArmedKind = null;
 
   constructor(cb: BoardCallbacks) {
     this.cb = cb;
@@ -111,10 +130,10 @@ export class BoardView {
   }
 
   /** Arm or disarm targeting mode. While armed the board shows a footprint, not moves. */
-  setArmed(on: boolean): void {
-    this.armed = on;
-    this.root.classList.toggle('arming', on);
-    if (on) this.legal.clear();
+  setArmed(what: ArmedKind): void {
+    this.armed = what;
+    this.root.classList.toggle('arming', what !== null);
+    if (what) this.legal.clear();
   }
 
   hide(): void {
@@ -179,12 +198,29 @@ export class BoardView {
         this.fireSever(ev.seat, ev.count, ev.cause);
         cut.delete(ev.seat);
       } else if (ev.t === 'repel') {
-        // A seedling shrugging off an assault is a moment; give it the same
-        // shockwave language as a cut, in the defender's colour.
+        // Ground being burned back off you is a moment; give it the same shockwave
+        // language as a cut, in the defender's colour.
         this.shockwave.push({ cell: ev.cell, t: 0, colour: seatColour(next.seats, ev.seat) });
         if (this.shockwave.length > 6) this.shockwave.shift();
         this.flash = Math.max(this.flash, ev.seat === this.mySeat ? 0.5 : 0.25);
         this.shake = Math.max(this.shake, 6);
+      } else if (ev.t === 'looted' && ev.fuel > 0) {
+        /*
+         * A granary changing hands with food in it. Loud in proportion to the haul,
+         * and loudest of all when it was YOURS — losing a full store is the most
+         * expensive thing that can happen to you without losing a seedling, and it
+         * must never happen quietly off the side of the screen.
+         */
+        this.shockwave.push({ cell: ev.cell, t: 0, colour: INK.store });
+        if (this.shockwave.length > 6) this.shockwave.shift();
+        const mine = ev.from === this.mySeat;
+        this.flash = Math.max(this.flash, mine ? 0.8 : 0.3);
+        this.shake = Math.max(this.shake, mine ? 10 : 4);
+      } else if (ev.t === 'denied' && ev.seat === this.mySeat) {
+        // The server refused it — out of energy, or out of reach of a store. Say so
+        // on the cell that was tapped, in the same language as an illegal poke.
+        this.denyCell = ev.cell;
+        this.denyT = 0.4;
       }
     }
     for (const [seat, list] of cut) {
@@ -300,7 +336,9 @@ export class BoardView {
       this.legal.clear();
       return;
     }
-    this.legal = legalCells(s.board, s.seats, this.mySeat, this.role);
+    // Allies matter here: a defence never touches a friend's ground, so a tile whose
+    // only neighbours are an ally's must not light up as one.
+    this.legal = legalCells(s.board, s.seats, this.mySeat, this.role, s.allies);
   }
 
   private onDown(e: PointerEvent): void {
@@ -352,8 +390,25 @@ export class BoardView {
       this.endPress();
       return;
     }
+    /*
+     * A defence with nothing in range is refused by the simulation and costs nothing,
+     * so say so here rather than sending a tap that will silently evaporate. Every
+     * tile you own is a legal defence, which makes "there was nothing to push" by far
+     * the most common way to miss with one.
+     */
+    if (cell >= 0 && s && kind === 'repel') {
+      const hits = repelHits(s.board, s.allies, this.mySeat, cell, repelBonus(s.seats[this.mySeat]));
+      if (hits.kill.length === 0 && hits.knock.length === 0) {
+        this.denyCell = cell;
+        this.denyT = 0.4;
+        this.cb.onDeny();
+        this.endPress();
+        return;
+      }
+    }
     if (cell >= 0 && kind) {
-      this.optimistic.set(cell, this.time);
+      // A defence claims nothing, so it gets no optimistic claim-fill on the tile.
+      if (kind !== 'repel') this.optimistic.set(cell, this.time);
       this.cb.onTap(cell, kind);
     } else if (cell >= 0) {
       this.denyCell = cell;
@@ -400,8 +455,8 @@ export class BoardView {
     this.vw = fit.w;
     this.vh = fit.h;
     const b = this.state?.board;
-    const cols = b?.w ?? 12;
-    const rows = b?.h ?? 18;
+    const cols = b?.w ?? BOARD_W;
+    const rows = b?.h ?? BOARD_H;
     this.cell = Math.max(6, Math.floor(Math.min(fit.w / cols, fit.h / rows)));
     this.ox = Math.round((fit.w - this.cell * cols) / 2);
     this.oy = Math.round((fit.h - this.cell * rows) / 2);
@@ -590,9 +645,22 @@ export class BoardView {
       if (cell.owner >= 0) {
         const base = seatColour(s.seats, cell.owner);
         const fed = cell.connected;
+        /*
+         * A pocket that is cut off but has a granary in it is NOT dying, and must not
+         * be drawn as if it were. It goes half-grey and stops there: visibly severed,
+         * visibly still standing. The full ash wave is reserved for ground that is
+         * actually about to evaporate.
+         */
+        const besieged = !fed && (s.board.nets[cell.net]?.stores ?? 0) > 0;
         // The grey-out wave. It runs to full ash in SEVER_WAVE seconds, and every
         // cell of the limb starts it on the same tick, so the whole shape dies at once.
-        const deadT = fed ? 0 : a.sever >= 0 ? clamp01(a.sever / SEVER_WAVE) : 1;
+        const deadT = fed
+          ? 0
+          : besieged
+            ? BESIEGED_FADE
+            : a.sever >= 0
+              ? clamp01(a.sever / SEVER_WAVE)
+              : 1;
         let colour = drained(base, deadT);
         if (fed) {
           // Fed tiles breathe, and the breath travels outward from home.
@@ -607,7 +675,14 @@ export class BoardView {
         roundRect(ctx, x + inset, y + inset, c - inset * 2, c - inset * 2, c * 0.24);
         ctx.fill();
 
-        if (!fed) {
+        if (besieged) {
+          // Dug in: a hard bright edge, which is the opposite read to the crack a
+          // dying tile gets. This ground is holding out, and it can still hit back.
+          ctx.strokeStyle = rgba(INK.store, 0.5);
+          ctx.lineWidth = Math.max(1, c * 0.06);
+          roundRect(ctx, x + 3, y + 3, c - 6, c - 6, c * 0.2);
+          ctx.stroke();
+        } else if (!fed) {
           // Draining: an inner square shrinks toward nothing while the wither runs.
           const life = cell.wither > 0 ? clamp01(cell.wither / 2) : 1 - deadT;
           ctx.fillStyle = rgba(INK.ashDark, 0.55);
@@ -630,7 +705,38 @@ export class BoardView {
       else if (cell.kind === 'acid') this.drawAcid(x, y, cell.owner >= 0);
       else if (cell.kind === 'insect') this.drawBugs(x, y, cell.owner >= 0);
       if (cell.kind === 'home') this.drawHome(x, y, s, cell.owner);
+      if (cell.store > 0) this.drawStore(x, y, cell.fuel);
     }
+  }
+
+  /**
+   * A nutrient store: a squat tank with the energy visibly inside it.
+   *
+   * Drawn last, over everything including the seedling ring, because it is the
+   * single most important thing on a tile — it is where the energy physically is, it
+   * is what a raider is coming for, and its fill level is the answer to "why has my
+   * income stopped".
+   */
+  private drawStore(x: number, y: number, fuel: number): void {
+    const ctx = this.ctx;
+    const c = this.cell;
+    const w = c * 0.42;
+    const h = c * 0.34;
+    const bx = x + (c - w) / 2;
+    const by = y + c - h - c * 0.12;
+    const full = clamp01(fuel / STORE_CAP);
+    ctx.fillStyle = rgba(INK.bg, 0.8);
+    roundRect(ctx, bx, by, w, h, c * 0.06);
+    ctx.fill();
+    if (full > 0) {
+      ctx.fillStyle = rgba(INK.store, 0.95);
+      roundRect(ctx, bx + 1, by + 1 + (h - 2) * (1 - full), w - 2, (h - 2) * full, c * 0.05);
+      ctx.fill();
+    }
+    ctx.strokeStyle = rgba(INK.store, full >= 0.999 ? 0.4 + 0.6 * Math.abs(Math.sin(this.time * 4)) : 0.85);
+    ctx.lineWidth = Math.max(1, c * 0.05);
+    roundRect(ctx, bx, by, w, h, c * 0.06);
+    ctx.stroke();
   }
 
   private drawCrack(x: number, y: number, i: number): void {
@@ -826,7 +932,7 @@ export class BoardView {
         const p = xy(cellIdx, board.w);
         const x = p.x * c;
         const y = p.y * c;
-        const tint = kind === 'attack' ? '#ff5a3c' : kind === 'spore' ? '#c46bff' : '#f6ffe8';
+        const tint = TAP_TINT[kind];
         ctx.strokeStyle = rgba(tint, 0.55);
         ctx.lineWidth = Math.max(1.5, c * 0.08);
         roundRect(ctx, x + 2.5, y + 2.5, c - 5, c - 5, c * 0.22);
@@ -834,7 +940,24 @@ export class BoardView {
         ctx.fillStyle = rgba(tint, 0.12);
         ctx.fill();
       }
-      if (this.armed && this.pressCell >= 0) {
+      if (this.armed === 'build' && this.pressCell >= 0 && this.state) {
+        /*
+         * Building. Show the tile you would put a granary on, and refuse to promise
+         * one anywhere it cannot go — a store only stands on ground you already hold
+         * and that has not got one.
+         */
+        const c = this.state.board.cells[this.pressCell];
+        const ok = c && c.owner === this.mySeat && c.store <= 0;
+        const p = xy(this.pressCell, board.w);
+        ctx.fillStyle = rgba(ok ? INK.store : '#ff4d4d', 0.22);
+        roundRect(ctx, p.x * this.cell + 2, p.y * this.cell + 2, this.cell - 4, this.cell - 4, this.cell * 0.22);
+        ctx.fill();
+        ctx.strokeStyle = rgba(ok ? INK.store : '#ff4d4d', 0.95);
+        ctx.lineWidth = Math.max(2, this.cell * 0.1);
+        roundRect(ctx, p.x * this.cell + 2, p.y * this.cell + 2, this.cell - 4, this.cell - 4, this.cell * 0.22);
+        ctx.stroke();
+      }
+      if (this.armed === 'takeover' && this.pressCell >= 0) {
         // The block HOSTILE TAKEOVER would clear, clamped to the board exactly as
         // the simulation clamps it. You must be able to see a 9x9 before you spend.
         const half = Math.floor(TAKEOVER_SIZE / 2);
@@ -862,7 +985,30 @@ export class BoardView {
       if (!this.armed && this.pressCell >= 0) {
         const p = xy(this.pressCell, board.w);
         const kind = this.legal.get(this.pressCell);
-        const tint = kind === 'attack' ? '#ff5a3c' : kind === 'spore' ? '#c46bff' : '#ffffff';
+        /*
+         * A defence is the one tap whose effect is not on the tile you are touching,
+         * so the tile under the thumb is not enough: mark every tile it would burn.
+         * You must be able to see what a defence costs and clears before you lift.
+         */
+        if (kind === 'repel' && this.state) {
+          const s = this.state;
+          const hits = repelHits(s.board, s.allies, this.mySeat, this.pressCell, repelBonus(s.seats[this.mySeat]));
+          for (const i of hits.kill) {
+            const q = xy(i, board.w);
+            ctx.fillStyle = rgba(TAP_TINT.repel, 0.3);
+            roundRect(ctx, q.x * c + 2, q.y * c + 2, c - 4, c - 4, c * 0.22);
+            ctx.fill();
+            ctx.strokeStyle = rgba(TAP_TINT.repel, 0.9);
+            ctx.lineWidth = Math.max(1.5, c * 0.08);
+            ctx.beginPath();
+            ctx.moveTo(q.x * c + c * 0.3, q.y * c + c * 0.3);
+            ctx.lineTo(q.x * c + c * 0.7, q.y * c + c * 0.7);
+            ctx.moveTo(q.x * c + c * 0.7, q.y * c + c * 0.3);
+            ctx.lineTo(q.x * c + c * 0.3, q.y * c + c * 0.7);
+            ctx.stroke();
+          }
+        }
+        const tint = kind ? TAP_TINT[kind] : '#ffffff';
         ctx.strokeStyle = tint;
         ctx.lineWidth = Math.max(2.5, c * 0.13);
         const grow = 1 + 0.06 * Math.sin(this.time * 12);

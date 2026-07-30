@@ -27,6 +27,12 @@ export const INK = {
   acidGlow: '#caff8a',
   bug: '#d8d2b0',
   bugGlow: '#f2eccc',
+  /**
+   * Nutrient stores. Deliberately the same amber as the energy readout on the HUD,
+   * because they are the same substance: what the number counts is what the tanks
+   * hold, and a player has to make that connection without being told.
+   */
+  store: '#ffc23d',
   /** The colour of death. Everything severed converges here. */
   ash: '#6d6f6d',
   ashDark: '#3a3d3b',

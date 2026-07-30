@@ -13,7 +13,7 @@
  */
 
 import type { Board, Cell, RoleDef, RoleId, Seat } from './bloom.js';
-import { BOARD_W, INSECT_DEFENCE, INSECT_FUNGAL_DEFENCE, INSECT_SPORE_DEFENCE, NEIGHBOURS, REPEL_COST, WOOD_DEFENCE, WOOD_THORN_DEFENCE } from './bloom.js';
+import { BOARD_W, DIST_COST_MAX, DIST_COST_PER_CELL, INSECT_DEFENCE, INSECT_FUNGAL_DEFENCE, INSECT_SPORE_DEFENCE, NEIGHBOURS, REPEL_COST, REPEL_HOME_KILL_RADIUS, REPEL_KILL_COST, REPEL_KILL_RADIUS, REPEL_RADIUS, TECH_BULWARK_RADIUS, WOOD_DEFENCE, WOOD_THORN_DEFENCE, isAllied } from './bloom.js';
 
 // ---------------------------------------------------------------- geometry
 
@@ -202,20 +202,33 @@ export function legalTap(
    * An ENEMY seedling is conquerable — just very slow to take. That is what gives an
    * attack a point beyond attrition: crack someone's seedling and they are out.
    *
-   * YOUR OWN seedling is the one cell of yours you may tap, and doing so repels
-   * whoever is leaning on it — while it is off cooldown. See `REPEL_COST`.
+   * EVERY tile you own is a defence: tap it and the enemy ground around it burns
+   * back to bare soil, while it is off cooldown. This used to be the seedling alone,
+   * which meant the one square that was already the hardest thing on the board to
+   * take was also the only one that could push back, and a lodgement anywhere else
+   * in your garden could only be answered by out-tapping it. See `REPEL_COST`.
    */
-  if (c.kind === 'home' && c.owner === seat) {
+  if (c.owner === seat) {
     return (seats[seat]?.repelCooldown ?? 0) > 0 ? null : 'repel';
   }
-  if (c.owner === seat) return null; // already yours
 
+  /*
+   * A CUT-OFF POCKET MAY ONLY DEFEND.
+   *
+   * `touching` is not merely "I have a tile next door" any more — it is "I have a
+   * tile next door that is part of a LIVE network", one with a seedling in it. A
+   * clump severed from every heart you own keeps its ground, keeps earning into its
+   * own granaries and keeps shoving people off its border (the check above is
+   * deliberately ahead of this one), but it cannot take another inch. It is under
+   * siege, and a siege is not a base of operations.
+   */
   let touching = false;
   for (const n of neighbours(board, cell)) {
-    if (board.cells[n].owner === seat) {
-      touching = true;
-      break;
-    }
+    const nb = board.cells[n];
+    if (nb.owner !== seat) continue;
+    if (nb.net >= 0 && board.nets[nb.net]?.live === false) continue;
+    touching = true;
+    break;
   }
 
   if (c.owner < 0) {
@@ -261,11 +274,19 @@ export function legalTap(
  * whole runner across open ground in one tap, so it plays for distance and cut-off
  * lines, while MOSS plays for area and THORN plays for contact.
  */
-/** Is `cell` within `hop` cells (manhattan) of any tile this seat owns? */
+/**
+ * Is `cell` within `hop` cells (manhattan) of any tile this seat owns?
+ *
+ * Only LIVE networks throw spores — a besieged pocket may defend itself and nothing
+ * else, and a pod launched out of one would be exactly the escape hatch the siege
+ * rule exists to close.
+ */
 function withinHop(board: Board, seat: number, cell: number, hop: number): boolean {
   const a = xy(cell, board.w);
   for (let i = 0; i < board.cells.length; i++) {
-    if (board.cells[i].owner !== seat) continue;
+    const c = board.cells[i];
+    if (c.owner !== seat) continue;
+    if (c.net >= 0 && board.nets[c.net]?.live === false) continue;
     const b = xy(i, board.w);
     if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= hop) return true;
   }
@@ -288,7 +309,11 @@ export function lineFrom(board: Board, seat: number, cell: number, reach: number
       if (!inBounds(px, py, board)) break;
       const p = board.cells[idx(px, py, board.w)];
       if (p.owner === seat) {
-        // Found the root: everything between is the run.
+        // Found the root: everything between is the run — but only if that root is
+        // part of a LIVE network. A runner thrown out of a besieged pocket would be
+        // the loophole that makes the siege rule meaningless, and VINE is the one
+        // plant that can reach far enough for it to matter.
+        if (p.net >= 0 && board.nets[p.net]?.live === false) break;
         run.reverse();
         return [cell, ...run];
       }
@@ -321,6 +346,122 @@ export function tapCost(role: RoleDef, kind: TapKind): number {
   return kind === 'attack' ? role.attackCost : role.growCost;
 }
 
+// ---------------------------------------------------------------- defence
+
+/** What a defence tapped on `cell` would do. See `REPEL_COST` for the design. */
+export interface RepelHits {
+  /** Enemy tiles inside the kill ring. Destroyed outright, back to bare soil. */
+  kill: number[];
+  /** Enemy claims in progress inside the wider ring. Knocked back, not cancelled. */
+  knock: number[];
+}
+
+/** How far a defence tapped on this cell burns. A seedling defends a wider ring. */
+export function repelKillRadius(board: Board, cell: number, bonus = 0): number {
+  const c = cellAt(board, cell);
+  return (c?.kind === 'home' ? REPEL_HOME_KILL_RADIUS : REPEL_KILL_RADIUS) + bonus;
+}
+
+/**
+ * Everything a defence from `cell` would touch, in one place.
+ *
+ * SHARED on purpose, like everything else in this file: `Garden.repel` mutates
+ * exactly what this returns, and the renderer lights up exactly the tiles where
+ * tapping would return something. A highlight that promised a defence the
+ * simulation then refused would be the same lie as a mis-drawn legal move.
+ *
+ * Walks the diamond around `cell`, never the whole board — this runs once per owned
+ * tile every time a thumb goes down, and a full-board scan per tile was measurably
+ * too much on a phone once every tile became a defence.
+ */
+export function repelHits(
+  board: Board,
+  allies: number[],
+  seat: number,
+  cell: number,
+  bonus = 0,
+): RepelHits {
+  const kill: number[] = [];
+  const knock: number[] = [];
+  const killR = repelKillRadius(board, cell, bonus);
+  const reach = Math.max(REPEL_RADIUS, killR);
+  const p = xy(cell, board.w);
+  for (let dy = -reach; dy <= reach; dy++) {
+    const span = reach - Math.abs(dy);
+    for (let dx = -span; dx <= span; dx++) {
+      const x = p.x + dx;
+      const y = p.y + dy;
+      if (!inBounds(x, y, board)) continue;
+      const i = idx(x, y, board.w);
+      const c = board.cells[i];
+      const hostile = (who: number) => who >= 0 && who !== seat && !isAllied(allies, seat, who);
+      if (c.claimant >= 0 && c.progress > 0 && hostile(c.claimant)) knock.push(i);
+      // Never dissolve a seedling: a conquered heart next door is TAKEN, over six
+      // slow visible seconds, not blown up from the tile beside it.
+      if (Math.abs(dx) + Math.abs(dy) <= killR && c.kind !== 'home' && hostile(c.owner)) kill.push(i);
+    }
+  }
+  return { kill, knock };
+}
+
+/** Energy a defence costs: a flat price, plus a levy on every tile it burns. */
+export function repelCost(kills: number): number {
+  return REPEL_COST + REPEL_KILL_COST * kills;
+}
+
+// ---------------------------------------------------------------- supply lines
+
+/**
+ * The price multiplier for acting `dist` cells from the nearest granary.
+ *
+ * Everything a network does — planting, eating, defending — is paid for out of a
+ * store that has to physically be somewhere, so the further from one you are
+ * working, the more it costs. Capped, because the far corner of the map should be
+ * expensive rather than unreachable, and a network with NO store at all is charged
+ * the ceiling rather than infinity (see `FAR_FROM_STORE`).
+ */
+export function supplyMul(dist: number): number {
+  if (dist <= 0) return 1;
+  return Math.min(DIST_COST_MAX, 1 + DIST_COST_PER_CELL * dist);
+}
+
+/**
+ * Distance stood in for a network that holds no granary at all. High enough to hurt,
+ * finite so a storeless pocket can still scrape together a defence.
+ */
+export const FAR_FROM_STORE = 14;
+
+/**
+ * How far a tap on `cell` is from `seat`'s nearest granary, and whether the network
+ * that would pay for it is alive. The client reads this to preview a price; the
+ * simulation computes the same thing in `Garden.supply`.
+ */
+export function supplyAt(board: Board, seat: number, cell: number): { dist: number; live: boolean } {
+  let best = FAR_FROM_STORE;
+  let live = false;
+  for (const n of neighbours(board, cell)) {
+    const c = board.cells[n];
+    if (c.owner !== seat || c.net < 0) continue;
+    const d = (c.dist < 0 ? FAR_FROM_STORE : c.dist) + 1;
+    if (d <= best) {
+      best = d;
+      live = board.nets[c.net]?.live === true;
+    }
+  }
+  return { dist: best, live };
+}
+
+/**
+ * Extra rings this seat's defence clears, from BULWARK.
+ *
+ * Read off `Seat.techs` rather than the simulation's private tech set, because the
+ * client has to reach the same answer from a snapshot and there must be exactly one
+ * rule for how wide a defence is.
+ */
+export function repelBonus(seat: Seat | undefined): number {
+  return seat?.techs?.includes('bulwark') ? TECH_BULWARK_RADIUS : 0;
+}
+
 /**
  * Every cell the local player could legally poke. Recomputed on touch-down.
  *
@@ -337,17 +478,29 @@ export function legalCells(
   seats: Seat[],
   seat: number,
   role: RoleDef,
+  allies: number[] = [],
 ): Map<number, TapKind> {
   const out = new Map<number, TapKind>();
+  const bonus = repelBonus(seats[seat]);
   for (let i = 0; i < board.cells.length; i++) {
     const k = legalTap(board, seats, seat, role, i);
     if (!k) continue;
     /*
-     * A cell already filling in is not tappable — EXCEPT your own seedling, where a
+     * A cell already filling in is not tappable — EXCEPT one of your own, where a
      * claim in progress is precisely the reason to tap it. Hiding it then would take
-     * the repel away at the only moment it matters.
+     * the defence away at the only moment it matters.
      */
     if (k !== 'repel' && isBeingTaken(board, i)) continue;
+    /*
+     * Every tile you own is a legal defence, but lighting up your entire mat on
+     * every touch-down would be a wall of highlight that says nothing. Show only the
+     * tiles where a defence would actually do something — which is also exactly
+     * where the simulation will accept one and charge for it.
+     */
+    if (k === 'repel') {
+      const hits = repelHits(board, allies, seat, i, bonus);
+      if (hits.kill.length === 0 && hits.knock.length === 0) continue;
+    }
     out.set(i, k);
   }
   return out;
