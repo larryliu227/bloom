@@ -215,7 +215,6 @@ class Bloom {
   private wasDrafting = false;
   private acidEl: HTMLElement | null = null;
   private sunEl: HTMLElement | null = null;
-  private woodEl: HTMLElement | null = null;
   private takeoverBtn: HTMLButtonElement | null = null;
   private groveBtn: HTMLButtonElement | null = null;
   private groveCost: HTMLElement | null = null;
@@ -605,12 +604,10 @@ class Bloom {
     this.energyEl = el('span', 'hud-energy', '0');
     this.acidEl = el('span', 'hud-acid', '0');
     this.sunEl = el('span', 'hud-sun', '0');
-    this.woodEl = el('span', 'hud-wood', '0');
     const purse = el('div', 'hud-purse');
     purse.appendChild(this.energyEl);
     purse.appendChild(this.acidEl);
     purse.appendChild(this.sunEl);
-    purse.appendChild(this.woodEl);
     const tech = el('button', 'hud-tech');
     tech.appendChild(el('span', 'hud-tech-icon', '🌱'));
     tech.appendChild(el('span', 'hud-tech-label', 'TECH'));
@@ -1008,7 +1005,6 @@ class Bloom {
     }
     if (this.acidEl) this.acidEl.textContent = me ? String(Math.floor(me.acid)) : '0';
     if (this.sunEl) this.sunEl.textContent = me ? String(Math.floor(me.sun)) : '0';
-    if (this.woodEl) this.woodEl.textContent = me ? String(Math.floor(me.wood)) : '0';
     if (this.takeoverBtn) {
       // SPORE's item, and only SPORE's.
       const canCast = me?.role === 'spore';
@@ -1058,7 +1054,6 @@ class Bloom {
     const purse: Record<Currency, number> = {
       acid: me?.acid ?? 0,
       sun: me?.sun ?? 0,
-      wood: me?.wood ?? 0,
     };
     let affordable = 0;
     for (const t of this.techBtns) {
@@ -1074,7 +1069,8 @@ class Bloom {
      * tech tree is where you find out it is coming.
      */
     if (this.hatchBtn) {
-      const canHatch = owned.has('brood');
+      // Insects are part of FUNGAL again, not something bought — BROOD is gone.
+      const canHatch = me?.role === 'fungal';
       this.hatchBtn.classList.toggle('hidden', !canHatch);
       this.hatchBtn.disabled = !canHatch || !me || me.energy < INSECT_COST;
     }
@@ -1119,7 +1115,6 @@ class Bloom {
 const PURSE_LABEL: Record<Currency, string> = {
   acid: '🜁 ACID POOLS',
   sun: '☀ SUN, IN DAYLIGHT',
-  wood: '▤ WOOD STANDS',
 };
 
 const REASONS: Record<string, string> = {

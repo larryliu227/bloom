@@ -42,7 +42,7 @@ export type CellKind =
   | 'soil' // plain, claimable
   | 'rock' // permanently blocked; makes the chokepoints the whole game turns on
   | 'sun' // energy for the photosynthesisers. LETHAL to fungal and spore.
-  | 'wood' // FUNGAL's larder: the only thing that pays it. Braces its holder's defence.
+  | 'wood' // FUNGAL's larder: the only thing that feeds it. Braces its holder's defence.
   | 'insect' // SPORE's larder: the only thing that pays it. Rots everyone else's defence.
   | 'acid' // pays ACID, and acid is the only thing that buys tech. Contested by all five.
   | 'home'; // a player's root. Lose the ability to grow from it and you are out.
@@ -296,58 +296,19 @@ export type TechId =
   | 'bulwark'
   | 'reflex'
   // VINE
-  | 'whip'
-  | 'lash'
-  | 'canopy'
-  | 'thicket'
-  | 'lightning'
-  | 'trellis'
-  | 'rend'
   // MOSS
-  | 'carpet'
-  | 'bark'
-  | 'bog'
-  | 'rampart'
-  | 'peat'
-  | 'cushion'
-  | 'stonemoss'
   // SPORE
-  | 'drift'
-  | 'pod'
-  | 'burst'
-  | 'gale'
-  | 'bloomburst'
-  | 'windborne'
-  | 'blight'
   // FUNGAL
-  | 'mycelium'
-  | 'enzyme'
-  | 'bloomcap'
-  | 'brood'
-  | 'hive'
-  | 'rot'
   // TREE — one straight line, no forks. The simplest faction gets the simplest tree.
-  | 'grove'
-  | 'orchard'
-  | 'oldgrowth'
-  | 'putrefy'
-  | 'spawnsac'
-  // THORN
-  | 'barbs'
-  | 'feed'
-  | 'swarm'
-  | 'venom'
-  | 'bramble'
-  | 'spike'
-  | 'gorge';
+  // THORN;
 
 /** Which purse a card is priced in. See the note on `TechId`. */
-export type Currency = 'acid' | 'sun' | 'wood';
+export type Currency = 'acid' | 'sun';
 
-export const CURRENCIES: readonly Currency[] = ['acid', 'sun', 'wood'];
+export const CURRENCIES: readonly Currency[] = ['acid', 'sun'];
 
 /** The glyph each purse is drawn with, on the HUD and on every card. */
-export const CURRENCY_ICON: Record<Currency, string> = { acid: '🜁', sun: '☀', wood: '▤' };
+export const CURRENCY_ICON: Record<Currency, string> = { acid: '🜁', sun: '☀' };
 
 /**
  * Plants that sunlight kills, and which therefore can never bank a single point of
@@ -402,66 +363,27 @@ export const TECHS: TechDef[] = [
   { id: 'reflex', name: 'REFLEX', blurb: 'defend twice as often', cost: 12, currency: 'acid', icon: '⟳', tier: 2 },
 
   // ---------------------------------------------------------------- VINE
-  { id: 'whip', name: 'WHIP', blurb: 'runners go further', cost: 9, currency: 'acid', icon: '➤', role: 'vine', tier: 1 },
-  { id: 'lash', name: 'LASH', blurb: 'runners cost less', cost: 14, currency: 'acid', icon: '⇉', role: 'vine', tier: 2 },
-  { id: 'canopy', name: 'CANOPY', blurb: 'runners land much faster', cost: 14, currency: 'sun', icon: '❋', role: 'vine', tier: 2 },
-  { id: 'trellis', name: 'TRELLIS', blurb: 'cut runners barely rot', cost: 16, currency: 'sun', icon: '⌗', role: 'vine', tier: 2 },
-  { id: 'thicket', name: 'THICKET', blurb: 'runners are hard to chew through', cost: 22, currency: 'sun', icon: '፨', role: 'vine', tier: 3 },
-  { id: 'lightning', name: 'LIGHTNING', blurb: 'runners cross half the garden', cost: 24, currency: 'acid', icon: '↯', role: 'vine', tier: 3 },
-  { id: 'rend', name: 'REND', blurb: 'runners tear straight through enemy ground', cost: 26, currency: 'acid', icon: '⚔', role: 'vine', tier: 4 },
 
   // ---------------------------------------------------------------- MOSS
-  { id: 'carpet', name: 'CARPET', blurb: 'claim a bigger patch', cost: 9, currency: 'acid', icon: '▦', role: 'moss', tier: 1 },
-  { id: 'cushion', name: 'CUSHION', blurb: 'patches cost less to lay', cost: 12, currency: 'sun', icon: '☁', role: 'moss', tier: 2 },
-  { id: 'bark', name: 'BARK', blurb: 'much harder to eat', cost: 14, currency: 'sun', icon: '🛡', role: 'moss', tier: 2 },
-  { id: 'bog', name: 'BOG', blurb: 'never withers', cost: 16, currency: 'acid', icon: '≋', role: 'moss', tier: 2 },
-  { id: 'rampart', name: 'RAMPART', blurb: 'they pay dearly for every tile', cost: 22, currency: 'sun', icon: '⛫', role: 'moss', tier: 3 },
-  { id: 'peat', name: 'PEAT', blurb: 'your ground feeds you richly', cost: 24, currency: 'sun', icon: '⬛', role: 'moss', tier: 3 },
-  { id: 'stonemoss', name: 'STONEMOSS', blurb: 'poison cannot touch your ground', cost: 26, currency: 'acid', icon: '🗿', role: 'moss', tier: 4 },
 
   // ---------------------------------------------------------------- SPORE
-  { id: 'drift', name: 'DRIFT', blurb: 'hop further', cost: 9, currency: 'acid', icon: '❂', role: 'spore', tier: 1 },
-  { id: 'pod', name: 'POD', blurb: 'spores cost less', cost: 14, currency: 'acid', icon: '◍', role: 'spore', tier: 2 },
-  { id: 'burst', name: 'BURSTPOD', blurb: 'landings spread out', cost: 14, currency: 'acid', icon: '✺', role: 'spore', tier: 2 },
-  { id: 'windborne', name: 'WINDBORNE', blurb: 'landings are much tougher', cost: 16, currency: 'acid', icon: '🌀', role: 'spore', tier: 2 },
-  { id: 'gale', name: 'GALE', blurb: 'hop clean across the garden', cost: 22, currency: 'acid', icon: '≈', role: 'spore', tier: 3 },
-  { id: 'bloomburst', name: 'BLOOMBURST', blurb: 'landings spread twice as far', cost: 24, currency: 'acid', icon: '❊', role: 'spore', tier: 3 },
-  { id: 'blight', name: 'BLIGHT', blurb: 'your poison swallows a wider block', cost: 26, currency: 'acid', icon: '☢', role: 'spore', tier: 4 },
 
   // ---------------------------------------------------------------- FUNGAL
-  { id: 'mycelium', name: 'MYCELIUM', blurb: 'creeps much faster', cost: 9, currency: 'acid', icon: '🍄', role: 'fungal', tier: 1 },
-  { id: 'enzyme', name: 'ENZYME', blurb: 'eating feeds you more', cost: 14, currency: 'wood', icon: '🧪', role: 'fungal', tier: 2 },
-  { id: 'bloomcap', name: 'BLOOMCAP', blurb: 'eaten tiles creep too', cost: 14, currency: 'acid', icon: '✿', role: 'fungal', tier: 2 },
-  { id: 'putrefy', name: 'PUTREFY', blurb: 'chews through tiles far faster', cost: 16, currency: 'wood', icon: '⚱', role: 'fungal', tier: 2 },
-  { id: 'rot', name: 'ROT', blurb: 'the mycelium never stops', cost: 24, currency: 'wood', icon: '☣', role: 'fungal', tier: 3 },
 
   /*
    * TREE — one straight line and nothing to weigh up. Every step means the same
    * thing (the wood spreads faster) and each is strictly better than the last, which
    * is the right shape for the faction people pick when they do not want to think.
    */
-  { id: 'grove', name: 'GROVE', blurb: 'the wood spreads faster', cost: 8, currency: 'sun', icon: '🌱', role: 'tree', tier: 1 },
-  { id: 'orchard', name: 'ORCHARD', blurb: 'faster still', cost: 16, currency: 'sun', icon: '🌳', role: 'tree', tier: 2 },
-  { id: 'oldgrowth', name: 'OLD GROWTH', blurb: 'the forest takes the world', cost: 26, currency: 'sun', icon: '🌲', role: 'tree', tier: 3 },
-  { id: 'spawnsac', name: 'SPAWNSAC', blurb: 'insects live far longer', cost: 20, currency: 'wood', icon: '🥚', role: 'fungal', tier: 3 },
   /*
    * The insects are FUNGAL's endgame, and they are priced like it. Nothing else in
    * the game costs anything close — this is what a whole match of digesting other
    * people's gardens is FOR, and until you buy it the mycelium has no swarm at all.
    */
-  { id: 'brood', name: 'BROOD', blurb: 'the mycelium starts hatching insects', cost: 100, currency: 'acid', icon: '🐛', role: 'fungal', tier: 4 },
   // Says BROOD out loud: with no prerequisites to lock it, the blurb is the only
   // thing standing between a player and a card that does nothing on its own.
-  { id: 'hive', name: 'HIVE', blurb: 'once BROOD hatches them: many more insects, far cheaper', cost: 24, currency: 'acid', icon: '🐝', role: 'fungal', tier: 4 },
 
   // ---------------------------------------------------------------- THORN
-  { id: 'barbs', name: 'BARBS', blurb: 'eat much faster', cost: 9, currency: 'acid', icon: '✖', role: 'thorn', tier: 1 },
-  { id: 'spike', name: 'SPIKE', blurb: 'your thorns are much tougher', cost: 12, currency: 'sun', icon: '✧', role: 'thorn', tier: 2 },
-  { id: 'feed', name: 'FEED', blurb: 'eating gives energy', cost: 14, currency: 'sun', icon: '🍖', role: 'thorn', tier: 2 },
-  { id: 'swarm', name: 'SWARM', blurb: 'eating spreads twice as far', cost: 14, currency: 'acid', icon: '⁂', role: 'thorn', tier: 2 },
-  { id: 'gorge', name: 'GORGE', blurb: 'every bite is a meal', cost: 20, currency: 'sun', icon: '🍯', role: 'thorn', tier: 3 },
-  { id: 'venom', name: 'VENOM', blurb: 'eating costs almost nothing', cost: 22, currency: 'acid', icon: '☠', role: 'thorn', tier: 3 },
-  { id: 'bramble', name: 'BRAMBLE', blurb: 'eating spreads three times as far', cost: 24, currency: 'sun', icon: '҉', role: 'thorn', tier: 3 },
 ];
 
 /**
@@ -490,35 +412,16 @@ export const TECH_GROW_SPEED = 0.65;
 export const TECH_ZENITH_NIGHT = 0.8;
 /** COMPOST / PEAT: extra energy per owned tile per second. */
 export const TECH_COMPOST_TILE = 0.02;
-export const TECH_PEAT_TILE = 0.035;
 /** HEARTWOOD: multiplier on how long YOUR seedlings take an enemy to crack. */
 export const TECH_HEARTWOOD = 2.2;
-/** RAMPART: multiplier on the bond cost an attacker pays against your tiles. */
-export const TECH_RAMPART_BOND = 2.2;
-/** HIVE: extra insects alive at once, and the discount on hatching one. */
-export const TECH_HIVE_CAP = 3;
-export const TECH_HIVE_DISCOUNT = 2;
 export const TECH_WITHER_MUL = 0.45;
 export const TECH_SOLAR_BONUS = 0.5;
-export const TECH_BARK_TOUGH = 2;
-export const TECH_FEED_ENERGY = 2;
-export const TECH_ENZYME_BONUS = 2;
 /** HUSK / SPIKE / WINDBORNE: flat multipliers on how long YOUR tiles take to eat. */
 export const TECH_HUSK_TOUGH = 1.5;
-export const TECH_SPIKE_TOUGH = 1.7;
-export const TECH_WINDBORNE_TOUGH = 1.8;
-/** TRELLIS: a cut runner rots at a quarter speed. */
-export const TECH_TRELLIS_WITHER = 0.25;
-/** PUTREFY: multiplier on FUNGAL's capture time. */
-export const TECH_PUTREFY_CAPTURE = 0.55;
 /** ACID VEINS: multiplier on everything your acid pools pay. */
 export const TECH_VEINS_MUL = 1.7;
 /** DEW: extra flat energy per second, on top of the baseline trickle. */
 export const TECH_DEW_ENERGY = 0.4;
-/** GORGE: energy per tile eaten, on top of FEED. */
-export const TECH_GORGE_ENERGY = 4;
-/** SPAWNSAC: multiplier on how long a hatched insect lives. */
-export const TECH_SPAWNSAC_LIFE = 2;
 /**
  * BLIGHT: extra width and height on HOSTILE TAKEOVER's block.
  *
@@ -526,7 +429,6 @@ export const TECH_SPAWNSAC_LIFE = 2;
  * old 216-cell one, so +2 (11x11, 39%) restores the proportion the nuke was tuned
  * at; +4 would put 55% of the garden under one repeatable 1-acid tap.
  */
-export const TECH_BLIGHT_SIZE = 2;
 /** BULWARK: extra rings within which a defence reaches an assault to push it back. */
 export const TECH_BULWARK_RADIUS = 1;
 /** REFLEX: multiplier on the shared defence cooldown. */
@@ -561,8 +463,6 @@ export interface Seat {
   acid: number;
   /** Banked sunlight. Daylight only, and FUNGAL/SPORE can never earn a point of it. */
   sun: number;
-  /** Banked timber. Anyone may hold a stand of wood, so this purse is never closed. */
-  wood: number;
   /** Seconds until this seat may repel again. 0 when ready. */
   repelCooldown: number;
   /**
@@ -737,8 +637,6 @@ export const ACID_PER_SEC = 0.42;
  * because there are more suns on a board than there are acid pools.
  */
 export const SUN_BANK_PER_SEC = 0.3;
-/** Timber banked per owned `wood` tile per second. Paid to everyone who holds one. */
-export const WOOD_BANK_PER_SEC = 0.3;
 
 /**
  * Terrain multipliers on how long an attacker needs to take a tile.

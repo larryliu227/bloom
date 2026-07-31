@@ -19,7 +19,7 @@
  */
 
 import type { Board, Cell, GameMode, MapKind, MatchState, Net, RoleDef, RoleId, Seat, TechDef, TechId } from './bloom.js';
-import { BOARD_H, BOARD_W, CAPTURE_SLOWDOWN, PEACE_SEC, TREE_PLANT_SIZE, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
+import { BOARD_H, BOARD_W, CAPTURE_SLOWDOWN, PEACE_SEC, TREE_PLANT_SIZE, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_HEARTWOOD, TECH_DEW_ENERGY, TECH_HUSK_TOUGH, TECH_REFLEX_COOLDOWN, TECH_VEINS_MUL, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
 import type { BloomEvent } from './bloom.js';
 import { makeRng } from './math.js';
 import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
@@ -376,7 +376,6 @@ export class Garden {
         techs: [],
         acid: 0,
         sun: 0,
-        wood: 0,
         repelCooldown: 0,
         // Starts ready: the truce (not a cooldown) is what holds the first forest
         // back, so it lands the moment the peace lifts. See `plantGrove`.
@@ -573,56 +572,11 @@ export class Garden {
     // 'dew', 'veins' are income; 'rain' is night pacing; 'bulwark' and 'reflex' are
     // defence — all handled where they happen, not as stats.
 
-    // --- VINE: distance, and one card that turns a runner into a weapon
-    if (owned.has('whip')) r.reach += 2;
-    if (owned.has('lash')) r.growCost = Math.max(1, r.growCost - 1);
-    if (owned.has('canopy')) r.growTime *= 0.45;
-    if (owned.has('thicket')) r.toughness *= 2;
-    if (owned.has('lightning')) r.reach += 3;
-    if (owned.has('trellis')) r.witherMul *= TECH_TRELLIS_WITHER;
-    // 'rend' is a footprint rule — see `footprint`.
-
-    // --- MOSS: bulk, armour, permanence
-    if (owned.has('carpet')) r.blockSize += 1;
-    if (owned.has('cushion')) r.growCost = Math.max(1, r.growCost - 1);
-    if (owned.has('bark')) r.toughness *= TECH_BARK_TOUGH;
-    if (owned.has('bog')) r.witherMul = 0.05; // effectively never rots
-    // 'rampart' is paid by the ATTACKER — see `costOf` and the bond slow in stepClaims.
-    // 'peat' is income; 'stonemoss' is read by `hostileTakeover`.
-
-    // --- SPORE: reach, spread, and a wider poison
-    if (owned.has('drift')) { r.sporeLife += 6; r.hop = (r.hop ?? 4) + 3; }
-    if (owned.has('pod')) r.growCost = Math.max(1, r.growCost - 2);
-    if (owned.has('gale')) r.hop = (r.hop ?? 4) + 4;
-    if (owned.has('windborne')) r.toughness *= TECH_WINDBORNE_TOUGH;
-    // 'burst' and 'bloomburst' are handled at landing time; 'blight' in `hostileTakeover`.
-
-    // --- FUNGAL: digestion, the swarm, the rot
-    if (owned.has('mycelium') && r.creep) r.creep *= 0.5;
-    if (owned.has('enzyme') && r.digest) r.digest += TECH_ENZYME_BONUS;
-    if (owned.has('rot') && r.creep) r.creep *= 0.5;
-
-    // --- TREE: one line, each step the same promise kept harder
-    if (owned.has('grove') && r.creep) r.creep *= 0.75;
-    if (owned.has('orchard') && r.creep) r.creep *= 0.7;
-    if (owned.has('oldgrowth') && r.creep) r.creep *= 0.6;
-    if (owned.has('putrefy')) r.captureTime *= TECH_PUTREFY_CAPTURE;
-    // 'bloomcap' is handled at capture time; 'hive' and 'spawnsac' in `hatchInsect`.
-
-    // --- THORN: contact, cheap bites, wide ones
-    if (owned.has('barbs')) r.captureTime *= 0.5;
-    if (owned.has('venom')) r.attackCost = Math.max(0, r.attackCost - 1);
-    if (owned.has('spike')) r.toughness *= TECH_SPIKE_TOUGH;
-    // 'feed', 'gorge', 'swarm' and 'bramble' are handled at capture time.
-
     return r;
   }
 
   /** How far a completed capture by this seat infects the neutral ring around it. */
-  private infectDepth(seat: number): number {
-    const owned = this.techFor(seat);
-    if (owned.has('bramble')) return 3;
-    if (owned.has('swarm')) return 2;
+  private infectDepth(_seat: number): number {
     return 1;
   }
 
@@ -785,7 +739,7 @@ export class Garden {
      * tile you tapped. It is VINE's most expensive card because it is the only one
      * that turns the faction's growth verb into an attack verb.
      */
-    if (role.reach > 1 && (kind === 'grow' || (kind === 'attack' && owned.has('rend')))) {
+    if (role.reach > 1 && kind === 'grow') {
       // Continue in the direction the growth came from — a vine RUNS.
       const from = this.supportDir(seat, cell);
       let cur = cell;
@@ -924,15 +878,6 @@ export class Garden {
       const owned = this.techFor(seat.seat);
       const mine = seatHeld[seat.seat] ?? { sun: 0, wood: 0, insect: 0, acid: 0 };
       seat.acid += ACID_PER_SEC * mine.acid * (owned.has('veins') ? TECH_VEINS_MUL : 1) * dt;
-      /*
-       * Timber is FUNGAL's and nobody else's.
-       *
-       * Every plant used to bank wood off a wood tile, which flatly contradicted the
-       * rule the tile exists for — and left 6-7 wood-priced techs on every other
-       * faction's list that they could in principle pay for after all. Wood income
-       * and wood-priced tech are now both fungal-only; see `techsFor`.
-       */
-      if (this.roleOf(seat.seat).digest) seat.wood += WOOD_BANK_PER_SEC * mine.wood * dt;
       // Sunlight banks in daylight only — ZENITH is what keeps the panels running.
       if (day || owned.has('zenith')) {
         seat.sun += SUN_BANK_PER_SEC * mine.sun * (day ? 1 : TECH_ZENITH_NIGHT) * dt;
@@ -983,7 +928,7 @@ export class Garden {
       const perTile =
         ENERGY_PER_TILE +
         (owned.has('compost') ? TECH_COMPOST_TILE : 0) +
-        (owned.has('peat') ? TECH_PEAT_TILE : 0);
+        0;
       /*
        * The flat trickle is paid ONCE per garden, to the network holding a seedling
        * — it is the plant itself breathing, not a property of ground. Paying it to
@@ -1056,7 +1001,7 @@ export class Garden {
       // forward; neither of these two advances that way.
       const bondSlow =
         contested && !role.ignoresBonds
-          ? this.bondsOf(i) * BOND_TIME * (defTech?.has('rampart') ? TECH_RAMPART_BOND : 1)
+          ? this.bondsOf(i) * BOND_TIME
           : 0;
       // RAIN buys a plant its nights back: the dark stops slowing it down.
       const nightMul =
@@ -1098,7 +1043,6 @@ export class Garden {
           if (eater.digest) {
             const bite = eater.digest + (isDay(s.clock) ? 0 : NIGHT_DIGEST_BONUS);
             this.feedFrom(i, bite);
-            if (owned.has('bloomcap')) this.creepFrom(i, c.owner);
           }
           /*
            * Taking a seedling. The cell stays a `home` and is now yours, so the
@@ -1120,22 +1064,13 @@ export class Garden {
           // What a bite is worth. FEED makes eating pay; GORGE makes it a meal, and
           // they stack — with no prerequisites the pair is a choice, not a chain.
           const meal =
-            (owned.has('feed') ? TECH_FEED_ENERGY : 0) + (owned.has('gorge') ? TECH_GORGE_ENERGY : 0);
+            0;
           if (meal > 0) this.feedFrom(i, meal);
           if (this.effectiveRole(c.owner).parasite) {
-            // SWARM pushes the infection a ring further; BRAMBLE another one again.
             this.infect(i, c.owner, this.infectDepth(c.owner));
           }
         } else {
           this.emit({ t: 'claimed', cell: i, seat: c.owner });
-          if (this.effectiveRole(c.owner).remote) {
-            const spread = this.techFor(c.owner).has('bloomburst')
-              ? 2
-              : this.techFor(c.owner).has('burst')
-                ? 1
-                : 0;
-            if (spread > 0) this.infect(i, c.owner, spread);
-          }
         }
       }
     }
@@ -1227,7 +1162,7 @@ export class Garden {
     else if (role.ignoresBonds) base = role.attackCost;
     else {
       // RAMPART is the defender's tech: it is the attacker who feels it.
-      const bond = BOND_COST * (this.techFor(c.owner).has('rampart') ? TECH_RAMPART_BOND : 1);
+      const bond = BOND_COST;
       base = role.attackCost + this.bondsOf(cell) * bond;
     }
     // Free stays free. FUNGAL's bite is priced at nothing on purpose, and a supply
@@ -1251,7 +1186,7 @@ export class Garden {
    */
   /** Width of this seat's poison block. BLIGHT widens it. */
   private takeoverSize(seat: number): number {
-    return TAKEOVER_SIZE + (this.techFor(seat).has('blight') ? TECH_BLIGHT_SIZE : 0);
+    return TAKEOVER_SIZE;
   }
 
   /**
@@ -1263,7 +1198,7 @@ export class Garden {
    */
   private poisonImmune(seat: number): boolean {
     if (seat < 0) return false;
-    return this.roleOf(seat).poisonImmune === true || this.techFor(seat).has('stonemoss');
+    return this.roleOf(seat).poisonImmune === true;
   }
 
   hostileTakeover(seat: number, cell: number): boolean {
@@ -1457,11 +1392,13 @@ export class Garden {
     const s = this.state;
     const role = this.effectiveRole(seat);
     if (!role.creep) return false; // fungal only
-    // No swarm until the mycelium has learned to hatch. BROOD is the gate.
-    if (!this.techFor(seat).has('brood')) return false;
-    const hive = this.techFor(seat).has('hive');
-    const cost = Math.max(1, INSECT_COST - (hive ? TECH_HIVE_DISCOUNT : 0));
-    const cap = INSECT_CAP + (hive ? TECH_HIVE_CAP : 0);
+    /*
+     * Insects are FUNGAL's from the start again. BROOD used to gate them and HIVE
+     * used to widen them; both were plant upgrades and both are gone, so the swarm
+     * is simply part of the faction rather than something bought.
+     */
+    const cost = INSECT_COST;
+    const cap = INSECT_CAP;
     if (s.insects.filter((b) => b.seat === seat).length >= cap) return false;
     // Hatched out of a network that can actually pay for it, so a broke half of a
     // split mycelium cannot spend the rich half's stores.
@@ -1475,7 +1412,7 @@ export class Garden {
     if (mine.length === 0) return false;
     const cell = mine[Math.floor(this.rng() * mine.length)];
     this.spend(s.board.cells[cell].net, cost, cell);
-    const life = INSECT_LIFE * (this.techFor(seat).has('spawnsac') ? TECH_SPAWNSAC_LIFE : 1);
+    const life = INSECT_LIFE;
     s.insects.push({ id: this.nextInsect++, seat, cell, clock: INSECT_STEP, life });
     this.emit({ t: 'hatch', cell, seat });
     return true;
@@ -1885,7 +1822,6 @@ export class Garden {
       seat.cap = Math.round(seat.cap * 100) / 100;
       seat.acid = Math.round(seat.acid * 100) / 100;
       seat.sun = Math.round(seat.sun * 100) / 100;
-      seat.wood = Math.round(seat.wood * 100) / 100;
     }
   }
 
