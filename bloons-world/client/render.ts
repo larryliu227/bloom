@@ -15,7 +15,11 @@ import type { Dir, Player } from '../shared/world.js';
 const VIEW_H = 176;
 
 export class Renderer {
+  /** Wrapper holding the canvas and the name-tag layer, so both share a transform. */
+  readonly el: HTMLElement;
   readonly canvas: HTMLCanvasElement;
+  private tagLayer: HTMLElement;
+  private tags = new Map<string, HTMLElement>();
   private ctx: CanvasRenderingContext2D;
   /** Viewport size in WORLD pixels — the canvas backing store is exactly this. */
   private vw = 240;
@@ -25,8 +29,22 @@ export class Renderer {
   private ground: HTMLCanvasElement;
 
   constructor() {
+    this.el = document.createElement('div');
+    this.el.className = 'stage';
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'view';
+    this.el.appendChild(this.canvas);
+    /*
+     * Names live in the DOM, not on the canvas.
+     *
+     * Canvas text has to be drawn at world resolution — about five pixels tall —
+     * and then upscaled with smoothing off, which turns every letter to mush. A DOM
+     * label sits over the same pixels at real CSS size and stays sharp at any zoom,
+     * and it costs one div per player.
+     */
+    this.tagLayer = document.createElement('div');
+    this.tagLayer.className = 'tags';
+    this.el.appendChild(this.tagLayer);
     const ctx = this.canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('canvas 2d unavailable');
     this.ctx = ctx;
@@ -68,6 +86,35 @@ export class Renderer {
     for (const p of [...players].sort((a, b) => a.y - b.y)) {
       this.drawPerson(p, p.x - camX, p.y - camY, time, p.id === meId);
     }
+    this.drawTags(players, camX, camY, meId);
+  }
+
+  /** Position one crisp label per player, and retire the ones who left. */
+  private drawTags(players: Player[], camX: number, camY: number, meId: string): void {
+    const alive = new Set<string>();
+    for (const p of players) {
+      alive.add(p.id);
+      let tag = this.tags.get(p.id);
+      if (!tag) {
+        tag = document.createElement('div');
+        tag.className = 'tag';
+        this.tagLayer.appendChild(tag);
+        this.tags.set(p.id, tag);
+      }
+      if (tag.textContent !== p.name) tag.textContent = p.name;
+      tag.classList.toggle('me', p.id === meId);
+      // Follows the sprite up when they jump, so the tag stays over their head.
+      const sx = (p.x - camX) * this.scale;
+      const sy = (p.y - camY - BODY_H - p.z - 3) * this.scale;
+      tag.style.transform = `translate(${Math.round(sx)}px, ${Math.round(sy)}px) translateX(-50%)`;
+      // Cheap cull: a label parked far off-screen still costs layout.
+      tag.style.display = sx < -80 || sy < -40 || sx > this.vw * this.scale + 80 ? 'none' : '';
+    }
+    for (const [id, el] of this.tags) {
+      if (alive.has(id)) continue;
+      el.remove();
+      this.tags.delete(id);
+    }
   }
 
   /**
@@ -77,20 +124,34 @@ export class Renderer {
   private drawPerson(p: Player, sx: number, sy: number, time: number, isMe: boolean): void {
     const ctx = this.ctx;
     const x = Math.round(sx - BODY_W / 2);
-    const y = Math.round(sy - BODY_H);
-    if (x < -32 || y < -32 || x > this.vw + 32 || y > this.vh + 32) return;
+    /*
+     * The FEET stay where the simulation says. Only the drawing rises, so a jumping
+     * player is still standing where their shadow is — which is what everyone reads
+     * when judging who is next to what.
+     */
+    const groundY = Math.round(sy);
+    const y = Math.round(sy - BODY_H - p.z);
+    if (x < -32 || y < -48 || x > this.vw + 32 || y > this.vh + 48) return;
 
     const body = `hsl(${p.hue} 62% 56%)`;
     const dark = `hsl(${p.hue} 55% 38%)`;
     const skin = '#f0c9a0';
 
-    // Shadow first, so it sits under everybody.
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.fillRect(x + 1, y + BODY_H - 1, BODY_W - 2, 2);
+    /*
+     * The shadow stays on the ground and shrinks with height. It is the only cue
+     * for how high somebody is — without it a jump is indistinguishable from
+     * walking north, because both just move the sprite up the screen.
+     */
+    const lift = Math.min(1, p.z / 24);
+    const shW = Math.max(3, Math.round((BODY_W - 2) * (1 - lift * 0.45)));
+    ctx.fillStyle = `rgba(0,0,0,${0.28 - lift * 0.14})`;
+    ctx.fillRect(x + 1 + Math.round((BODY_W - 2 - shW) / 2), groundY - 1, shW, 2);
 
     // The walk cycle: legs swap on a 5 Hz square wave while moving, feet together
     // when stopped. Two frames is all a 12-pixel person needs.
-    const frame = p.moving ? (Math.floor(time * 5) % 2 === 0 ? 1 : -1) : 0;
+    // Airborne: legs tuck together instead of walking. A running-man in mid-air
+    // reads as a bug, and it is one line to not do it.
+    const frame = p.z > 0.5 ? 0 : p.moving ? (Math.floor(time * 5) % 2 === 0 ? 1 : -1) : 0;
     ctx.fillStyle = dark;
     ctx.fillRect(x + 2, y + 9 + (frame > 0 ? 1 : 0), 2, 3);
     ctx.fillRect(x + BODY_W - 4, y + 9 + (frame < 0 ? 1 : 0), 2, 3);
@@ -107,20 +168,14 @@ export class Renderer {
 
     if (isMe) {
       // A ring under your own feet — with everybody the same size and shape, this is
-      // the only thing that answers "which one am I" in a crowd.
+      // the only thing that answers "which one am I" in a crowd. It stays on the
+      // GROUND, so it doubles as a jump indicator.
       ctx.strokeStyle = 'rgba(255,255,255,0.55)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(x - 1.5, y + BODY_H - 2.5, BODY_W + 2, 4);
+      ctx.strokeRect(x - 1.5, groundY - 2.5, BODY_W + 2, 4);
     }
 
-    const label = isMe ? 'you' : p.name;
-    ctx.font = '5px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillText(label, x + BODY_W / 2, y - 2);
-    ctx.fillStyle = isMe ? '#ffffff' : 'rgba(226,240,255,0.85)';
-    ctx.fillText(label, x + BODY_W / 2, y - 3);
-    ctx.textAlign = 'left';
+    // The name itself is a DOM label — see `drawTags`.
   }
 
   private drawFace(x: number, y: number, dir: Dir): void {

@@ -20,6 +20,19 @@ export const WORLD_PX_H = WORLD_H * TILE;
 /** Walking speed, pixels per second. */
 export const WALK_SPEED = 78;
 
+/**
+ * Jumping. Up at JUMP_SPEED, pulled back down at GRAVITY.
+ *
+ * Tuned together rather than separately: peak height is v^2/2g and airtime is 2v/g,
+ * so these two numbers mean "about 23 pixels up, in about six-tenths of a second" —
+ * roughly twice a person's own height, and slow enough to see at the top.
+ *
+ * You keep full control of your feet in the air. A jump you cannot steer reads as a
+ * stumble rather than a hop.
+ */
+export const JUMP_SPEED = 150;
+export const GRAVITY = 480;
+
 /** How wide a person is, for keeping them inside the world. */
 export const BODY_W = 10;
 export const BODY_H = 12;
@@ -50,6 +63,14 @@ export interface Player {
   dir: Dir;
   /** True while they are actually moving, which is what drives the walk cycle. */
   moving: boolean;
+  /**
+   * Height above the ground in pixels. The FEET stay at (x, y) whatever this is —
+   * a jump lifts the drawing, not the position, so the shadow and everyone's sense
+   * of where you are standing stay honest.
+   */
+  z: number;
+  /** Vertical speed, pixels per second. Positive is upward. */
+  vz: number;
   /** Chosen at join and never changed, so everyone renders you the same colour. */
   hue: number;
 }
@@ -71,11 +92,26 @@ export function clampToWorld(x: number, y: number): { x: number; y: number } {
  * which players find immediately and then never walk in a straight line again.
  */
 export function step(
-  p: { x: number; y: number; dir: Dir; moving: boolean },
+  p: { x: number; y: number; dir: Dir; moving: boolean; z: number; vz: number },
   inx: number,
   iny: number,
   dt: number,
+  jump = false,
 ): void {
+  /*
+   * Jump first, and only from the ground — holding the key must not let you climb.
+   * `z <= 0` is the whole grounded test; there is nothing to stand on but the floor.
+   */
+  if (jump && p.z <= 0) p.vz = JUMP_SPEED;
+  if (p.z > 0 || p.vz !== 0) {
+    p.vz -= GRAVITY * dt;
+    p.z += p.vz * dt;
+    if (p.z <= 0) {
+      p.z = 0;
+      p.vz = 0;
+    }
+  }
+
   const len = Math.hypot(inx, iny);
   if (len < 0.01) {
     p.moving = false;

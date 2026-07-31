@@ -21,7 +21,9 @@ export type ClientMsg =
    * The input vector, roughly INPUT_RATE times a second. Components are clamped to
    * [-1, 1] server-side; a hostile client cannot walk faster by sending 9.
    */
-  | { t: 'input'; x: number; y: number }
+  | { t: 'input'; x: number; y: number; jump?: boolean }
+  /** Change your name mid-session. The tag over your head updates for everyone. */
+  | { t: 'rename'; name: string }
   | { t: 'ping'; ts: number };
 
 export type ServerMsg =

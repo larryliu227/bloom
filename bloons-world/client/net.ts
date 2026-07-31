@@ -85,8 +85,13 @@ export class Net {
   }
 
   /** Post the current intent. Dropped rather than queued — a stale input is worse. */
-  sendInput(x: number, y: number): void {
-    this.send({ t: 'input', x, y });
+  sendInput(x: number, y: number, jump = false): void {
+    this.send({ t: 'input', x, y, jump });
+  }
+
+  rename(name: string): void {
+    this.name = name;
+    this.send({ t: 'rename', name });
   }
 
   private send(msg: ClientMsg): void {

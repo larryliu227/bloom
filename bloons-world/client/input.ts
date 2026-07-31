@@ -8,17 +8,29 @@
 
 export class Input {
   private keys = new Set<string>();
+  /**
+   * A jump waiting to be sent. Set on the KEYDOWN edge and cleared once read, so
+   * one press is one jump no matter how long you lean on the key.
+   */
+  private jumpQueued = false;
   /** Thumbstick offset, already normalised to [-1, 1]. */
   private stick = { x: 0, y: 0 };
   private stickId = -1;
   private stickOrigin = { x: 0, y: 0 };
 
   readonly pad: HTMLElement;
+  private jumpBtn!: HTMLButtonElement;
 
   constructor(root: HTMLElement) {
     window.addEventListener('keydown', (e) => {
+      // Never steal keys from the name box.
+      if (isTyping(e.target)) return;
       if (e.repeat) return;
       this.keys.add(e.key.toLowerCase());
+      if (e.key === ' ' || e.code === 'Space') {
+        this.jumpQueued = true;
+        e.preventDefault(); // space scrolls the page otherwise
+      }
       // Arrows scroll the page otherwise, which drags the whole world sideways.
       if (e.key.startsWith('Arrow')) e.preventDefault();
     });
@@ -38,9 +50,24 @@ export class Input {
     this.pad.appendChild(nub);
     root.appendChild(this.pad);
 
+    /*
+     * A jump button for thumbs, on the right where the stick is not. Kept out of the
+     * stick's pointer handling entirely — sharing one pointer between "steer" and
+     * "jump" means every jump twitches your direction.
+     */
+    this.jumpBtn = document.createElement('button');
+    this.jumpBtn.className = 'jump';
+    this.jumpBtn.textContent = 'JUMP';
+    this.jumpBtn.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      this.jumpQueued = true;
+    });
+    root.appendChild(this.jumpBtn);
+
     const RADIUS = 46;
     root.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') return;
+      if (e.target === this.jumpBtn) return;
       this.stickId = e.pointerId;
       this.stickOrigin = { x: e.clientX, y: e.clientY };
       this.pad.style.left = `${e.clientX}px`;
@@ -67,6 +94,13 @@ export class Input {
     root.addEventListener('pointercancel', release);
   }
 
+  /** Read and clear the pending jump. Edge-triggered — see `jumpQueued`. */
+  takeJump(): boolean {
+    const j = this.jumpQueued;
+    this.jumpQueued = false;
+    return j;
+  }
+
   /** The current direction, keyboard and stick combined. */
   vector(): { x: number; y: number } {
     let x = this.stick.x;
@@ -77,4 +111,10 @@ export class Input {
     if (this.keys.has('s') || this.keys.has('arrowdown')) y += 1;
     return { x: Math.min(1, Math.max(-1, x)), y: Math.min(1, Math.max(-1, y)) };
   }
+}
+
+/** True when the event came from a text field, so gameplay keys stay out of it. */
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }

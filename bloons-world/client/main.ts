@@ -26,15 +26,47 @@ const NAME_KEY = 'world.name';
 const root = document.getElementById('app');
 if (!root) throw new Error('world: missing #app');
 
-const name = askName();
 const renderer = new Renderer();
-root.appendChild(renderer.canvas);
+root.appendChild(renderer.el);
 const input = new Input(root);
-const net = new Net(name);
+const net = new Net(loadName());
 
 const hud = document.createElement('div');
 hud.className = 'hud';
 root.appendChild(hud);
+
+/*
+ * The name box.
+ *
+ * This used to be a `prompt()` at module top level, which was a black screen: the
+ * dialog blocks before the canvas is even created, so if it was suppressed, hidden
+ * behind the window or dismissed oddly, there was nothing on the page at all and no
+ * clue why. Nothing should stand between opening the page and seeing the world.
+ */
+const nameBox = document.createElement('input');
+nameBox.className = 'namebox';
+nameBox.maxLength = 16;
+nameBox.spellcheck = false;
+nameBox.setAttribute('aria-label', 'your name');
+nameBox.value = loadName();
+root.appendChild(nameBox);
+
+const commitName = () => {
+  const clean = nameBox.value.trim().slice(0, 16);
+  if (!clean) {
+    nameBox.value = me.name;
+    return;
+  }
+  nameBox.value = clean;
+  me.name = clean;
+  saveName(clean);
+  net.rename(clean);
+};
+nameBox.addEventListener('change', commitName);
+nameBox.addEventListener('blur', commitName);
+nameBox.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') nameBox.blur();
+});
 const status = document.createElement('div');
 status.className = 'status';
 root.appendChild(status);
@@ -48,17 +80,22 @@ net.connect();
 /** Our predicted position. Reconciled toward the server every snapshot. */
 const me: Player = {
   id: '',
-  name,
+  name: loadName(),
   x: 0,
   y: 0,
   dir: 'down',
   moving: false,
+  z: 0,
+  vz: 0,
   hue: 0,
 };
 let seeded = false;
 
 let lastInputAt = 0;
 let lastFrame = performance.now();
+/** A jump waiting for the next input frame, and one for the local prediction. */
+let jumpPending = false;
+let predictJump = false;
 
 function loop(now: number): void {
   requestAnimationFrame(loop);
@@ -66,12 +103,19 @@ function loop(now: number): void {
   lastFrame = now;
 
   const v = input.vector();
+  // Latched here rather than read inside the timed block below: a jump pressed
+  // between two input frames would otherwise be thrown away.
+  if (input.takeJump()) {
+    jumpPending = true;
+    predictJump = true;
+  }
 
   // Post intent at a fixed rate rather than every frame — a 144 Hz screen does not
   // get to send seven times more input than a 20 Hz one.
   if (now - lastInputAt > 1000 / INPUT_RATE) {
     lastInputAt = now;
-    net.sendInput(v.x, v.y);
+    net.sendInput(v.x, v.y, jumpPending);
+    jumpPending = false;
   }
 
   const server = net.last?.players.find((p) => p.id === net.id);
@@ -81,7 +125,14 @@ function loop(now: number): void {
     seeded = true;
   }
   if (seeded) {
-    step(me, v.x, v.y, dt);
+    /*
+     * Predict the jump locally too, on the same frame the key went down. The server
+     * gets the same press a moment later and lands on the same arc, because both
+     * sides run `step`. Waiting for the server to start the hop is the difference
+     * between a jump that feels connected to the key and one that does not.
+     */
+    step(me, v.x, v.y, dt, predictJump);
+    predictJump = false;
     if (server) {
       /*
        * Reconcile softly. A hard snap every 50ms is visible as a stutter even when
@@ -100,6 +151,14 @@ function loop(now: number): void {
       }
       me.hue = server.hue;
       me.id = server.id;
+      /*
+       * Height is taken from the server outright rather than eased.
+       * A jump is short and its arc is the whole read — easing it produces a
+       * visible double-bounce on landing, where the prediction has touched down and
+       * the smoothed value is still coming home.
+       */
+      me.z = server.z;
+      me.vz = server.vz;
     }
     const c = clampToWorld(me.x, me.y);
     me.x = c.x;
@@ -144,21 +203,26 @@ function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
 
-function askName(): string {
-  let stored = '';
+function loadName(): string {
   try {
-    stored = localStorage.getItem(NAME_KEY) ?? '';
+    const stored = localStorage.getItem(NAME_KEY);
+    if (stored) return stored;
   } catch {
     /* private mode */
   }
-  if (stored) return stored;
-  const typed = (prompt('Your name?') ?? '').trim().slice(0, 16) || 'wanderer';
+  // Nobody is ever asked for a name before they can see the world. You arrive as
+  // somebody, and rename yourself in the corner if you care to.
+  const fresh = `wanderer${Math.floor(Math.random() * 900 + 100)}`;
+  saveName(fresh);
+  return fresh;
+}
+
+function saveName(n: string): void {
   try {
-    localStorage.setItem(NAME_KEY, typed);
+    localStorage.setItem(NAME_KEY, n);
   } catch {
-    /* private mode — you will be asked again next time */
+    /* private mode — the name just will not survive a reload */
   }
-  return typed;
 }
 
 window.addEventListener('resize', () => renderer.resize());
