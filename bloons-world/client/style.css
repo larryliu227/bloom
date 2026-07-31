@@ -1,0 +1,59 @@
+/*
+ * BLOONS WORLD — styling.
+ *
+ * There is almost none, on purpose: the game is one canvas scaled by a whole number
+ * and everything else is a label floating over it.
+ */
+:root { --ink: #e2f0ff; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #0a0e14;
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden;
+  overscroll-behavior: none;
+  user-select: none;
+}
+#app { position: fixed; inset: 0; display: grid; place-items: center; touch-action: none; }
+
+/* Never smooth the upscale — that is the whole of the pixel look. */
+.view { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+
+.hud, .status {
+  position: fixed;
+  padding: 4px 8px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  background: rgba(10, 14, 20, 0.72);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.hud { top: 8px; left: 8px; }
+.status { top: 8px; right: 8px; }
+.status[data-state="online"] { color: #7ee787; }
+.status[data-state="connecting"] { color: #ffd23d; }
+.status[data-state="offline"] { color: #ff7b72; }
+
+/* Floating thumbstick: appears wherever a thumb lands, vanishes on release. */
+.stick {
+  position: fixed;
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
+  border: 2px solid rgba(226, 240, 255, 0.25);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.stick.hidden { display: none; }
+.stick-nub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  background: rgba(226, 240, 255, 0.35);
+  border-radius: 50%;
+}
