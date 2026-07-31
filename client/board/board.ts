@@ -398,7 +398,7 @@ export class BoardView {
      */
     if (cell >= 0 && s && kind === 'repel') {
       const hits = repelHits(s.board, s.allies, this.mySeat, cell, repelBonus(s.seats[this.mySeat]));
-      if (hits.kill.length === 0 && hits.knock.length === 0) {
+      if (hits.length === 0) {
         this.denyCell = cell;
         this.denyT = 0.4;
         this.cb.onDeny();
@@ -987,25 +987,31 @@ export class BoardView {
         const kind = this.legal.get(this.pressCell);
         /*
          * A defence is the one tap whose effect is not on the tile you are touching,
-         * so the tile under the thumb is not enough: mark every tile it would burn.
-         * You must be able to see what a defence costs and clears before you lift.
+         * so the tile under the thumb is not enough: ring every ASSAULT it would push
+         * back. Only claims in progress — a defence does not touch anybody's tiles,
+         * and marking their ground would promise something it does not do.
          */
         if (kind === 'repel' && this.state) {
           const s = this.state;
           const hits = repelHits(s.board, s.allies, this.mySeat, this.pressCell, repelBonus(s.seats[this.mySeat]));
-          for (const i of hits.kill) {
+          for (const i of hits) {
             const q = xy(i, board.w);
-            ctx.fillStyle = rgba(TAP_TINT.repel, 0.3);
-            roundRect(ctx, q.x * c + 2, q.y * c + 2, c - 4, c - 4, c * 0.22);
-            ctx.fill();
             ctx.strokeStyle = rgba(TAP_TINT.repel, 0.9);
-            ctx.lineWidth = Math.max(1.5, c * 0.08);
+            ctx.lineWidth = Math.max(1.5, c * 0.09);
             ctx.beginPath();
-            ctx.moveTo(q.x * c + c * 0.3, q.y * c + c * 0.3);
-            ctx.lineTo(q.x * c + c * 0.7, q.y * c + c * 0.7);
-            ctx.moveTo(q.x * c + c * 0.7, q.y * c + c * 0.3);
-            ctx.lineTo(q.x * c + c * 0.3, q.y * c + c * 0.7);
+            ctx.arc((q.x + 0.5) * c, (q.y + 0.5) * c, c * 0.36, 0, Math.PI * 2);
             ctx.stroke();
+            // A short arrow shoved away from the tile doing the defending: this claim
+            // is being pushed BACK, not deleted.
+            const from = xy(this.pressCell, board.w);
+            const dx = Math.sign(q.x - from.x);
+            const dy = Math.sign(q.y - from.y);
+            if (dx || dy) {
+              ctx.beginPath();
+              ctx.moveTo((q.x + 0.5) * c, (q.y + 0.5) * c);
+              ctx.lineTo((q.x + 0.5 + dx * 0.34) * c, (q.y + 0.5 + dy * 0.34) * c);
+              ctx.stroke();
+            }
           }
         }
         const tint = kind ? TAP_TINT[kind] : '#ffffff';

@@ -13,7 +13,7 @@
  */
 
 import type { Board, Cell, RoleDef, RoleId, Seat } from './bloom.js';
-import { BOARD_W, DIST_COST_MAX, DIST_COST_PER_CELL, INSECT_DEFENCE, INSECT_FUNGAL_DEFENCE, INSECT_SPORE_DEFENCE, NEIGHBOURS, REPEL_COST, REPEL_HOME_KILL_RADIUS, REPEL_KILL_COST, REPEL_KILL_RADIUS, REPEL_RADIUS, TECH_BULWARK_RADIUS, WOOD_DEFENCE, WOOD_THORN_DEFENCE, isAllied } from './bloom.js';
+import { BOARD_W, DIST_COST_MAX, DIST_COST_PER_CELL, INSECT_DEFENCE, INSECT_FUNGAL_DEFENCE, INSECT_SPORE_DEFENCE, NEIGHBOURS, REPEL_COST, REPEL_RADIUS, TECH_BULWARK_RADIUS, WOOD_DEFENCE, WOOD_THORN_DEFENCE, isAllied } from './bloom.js';
 
 // ---------------------------------------------------------------- geometry
 
@@ -348,27 +348,19 @@ export function tapCost(role: RoleDef, kind: TapKind): number {
 
 // ---------------------------------------------------------------- defence
 
-/** What a defence tapped on `cell` would do. See `REPEL_COST` for the design. */
-export interface RepelHits {
-  /** Enemy tiles inside the kill ring. Destroyed outright, back to bare soil. */
-  kill: number[];
-  /** Enemy claims in progress inside the wider ring. Knocked back, not cancelled. */
-  knock: number[];
-}
-
-/** How far a defence tapped on this cell burns. A seedling defends a wider ring. */
-export function repelKillRadius(board: Board, cell: number, bonus = 0): number {
-  const c = cellAt(board, cell);
-  return (c?.kind === 'home' ? REPEL_HOME_KILL_RADIUS : REPEL_KILL_RADIUS) + bonus;
+/** How far out a defence tapped on this cell can reach an assault. */
+export function repelReach(bonus = 0): number {
+  return REPEL_RADIUS + bonus;
 }
 
 /**
- * Everything a defence from `cell` would touch, in one place.
+ * Every hostile claim a defence from `cell` would push back. Nothing else — a
+ * defence does not touch tiles, only claims in progress. See `REPEL_COST`.
  *
- * SHARED on purpose, like everything else in this file: `Garden.repel` mutates
+ * SHARED on purpose, like everything else in this file: `Garden.repel` pushes back
  * exactly what this returns, and the renderer lights up exactly the tiles where
- * tapping would return something. A highlight that promised a defence the
- * simulation then refused would be the same lie as a mis-drawn legal move.
+ * tapping would do something. A highlight that promised a defence the simulation
+ * then refused would be the same lie as a mis-drawn legal move.
  *
  * Walks the diamond around `cell`, never the whole board — this runs once per owned
  * tile every time a thumb goes down, and a full-board scan per tile was measurably
@@ -380,11 +372,9 @@ export function repelHits(
   seat: number,
   cell: number,
   bonus = 0,
-): RepelHits {
-  const kill: number[] = [];
+): number[] {
   const knock: number[] = [];
-  const killR = repelKillRadius(board, cell, bonus);
-  const reach = Math.max(REPEL_RADIUS, killR);
+  const reach = repelReach(bonus);
   const p = xy(cell, board.w);
   for (let dy = -reach; dy <= reach; dy++) {
     const span = reach - Math.abs(dy);
@@ -394,19 +384,12 @@ export function repelHits(
       if (!inBounds(x, y, board)) continue;
       const i = idx(x, y, board.w);
       const c = board.cells[i];
-      const hostile = (who: number) => who >= 0 && who !== seat && !isAllied(allies, seat, who);
-      if (c.claimant >= 0 && c.progress > 0 && hostile(c.claimant)) knock.push(i);
-      // Never dissolve a seedling: a conquered heart next door is TAKEN, over six
-      // slow visible seconds, not blown up from the tile beside it.
-      if (Math.abs(dx) + Math.abs(dy) <= killR && c.kind !== 'home' && hostile(c.owner)) kill.push(i);
+      if (c.claimant < 0 || c.progress <= 0) continue;
+      if (c.claimant === seat || isAllied(allies, seat, c.claimant)) continue;
+      knock.push(i);
     }
   }
-  return { kill, knock };
-}
-
-/** Energy a defence costs: a flat price, plus a levy on every tile it burns. */
-export function repelCost(kills: number): number {
-  return REPEL_COST + REPEL_KILL_COST * kills;
+  return knock;
 }
 
 // ---------------------------------------------------------------- supply lines
@@ -497,10 +480,7 @@ export function legalCells(
      * tiles where a defence would actually do something — which is also exactly
      * where the simulation will accept one and charge for it.
      */
-    if (k === 'repel') {
-      const hits = repelHits(board, allies, seat, i, bonus);
-      if (hits.kill.length === 0 && hits.knock.length === 0) continue;
-    }
+    if (k === 'repel' && repelHits(board, allies, seat, i, bonus).length === 0) continue;
     out.set(i, k);
   }
   return out;

@@ -372,7 +372,7 @@ export const TECHS: TechDef[] = [
   { id: 'dew', name: 'DEW', blurb: 'a steadier trickle of energy', cost: 10, currency: 'sun', icon: '💦', tier: 2 },
   { id: 'rain', name: 'RAIN', blurb: 'the night no longer slows you', cost: 14, currency: 'sun', icon: '🌧', tier: 2 },
   { id: 'veins', name: 'ACID VEINS', blurb: 'acid pools pay you far more', cost: 14, currency: 'acid', icon: '⚗', tier: 2 },
-  { id: 'bulwark', name: 'BULWARK', blurb: 'your defence clears a wider ring', cost: 16, currency: 'acid', icon: '⛨', tier: 3 },
+  { id: 'bulwark', name: 'BULWARK', blurb: 'your defence reaches further out', cost: 16, currency: 'acid', icon: '⛨', tier: 3 },
   { id: 'reflex', name: 'REFLEX', blurb: 'defend twice as often', cost: 12, currency: 'acid', icon: '⟳', tier: 2 },
 
   // ---------------------------------------------------------------- VINE
@@ -492,7 +492,7 @@ export const TECH_SPAWNSAC_LIFE = 2;
  * at; +4 would put 55% of the garden under one repeatable 1-acid tap.
  */
 export const TECH_BLIGHT_SIZE = 2;
-/** BULWARK: extra rings of enemy ground a defence clears. */
+/** BULWARK: extra rings within which a defence reaches an assault to push it back. */
 export const TECH_BULWARK_RADIUS = 1;
 /** REFLEX: multiplier on the shared defence cooldown. */
 export const TECH_REFLEX_COOLDOWN = 0.5;
@@ -802,50 +802,41 @@ export const ENERGY_PER_TILE = 0.022;
 export const HOME_CAPTURE_TIME = 6;
 
 /**
- * DEFENCE — tap ANY tile you own to shove the enemy off the ground around it.
+ * DEFENCE — tap ANY tile you own to shove an assault on it back.
  *
- * Two separate things happen, and they are tuned against each other:
+ * It does exactly ONE thing: every hostile claim in progress within REPEL_RADIUS is
+ * pushed back by REPEL_KNOCKBACK. That is all. A defence does not touch enemy
+ * TILES — it never destroys them, never takes them, never so much as scratches
+ * them. Defending is not a way to attack, and a tile somebody already owns is not
+ * something you can answer by holding your ground; you answer it by attacking it,
+ * which is a different tap with a different price.
  *
- *  1. Enemy TILES inside the kill ring are destroyed outright — burned back to bare
- *     soil, not captured. This is the part with teeth: a defence deletes a lodgement
- *     rather than politely asking it to leave, and because the ground comes up
- *     NEUTRAL it is a denial, not a free harvest. Whoever taps first gets the empty
- *     ground next.
- *  2. Enemy CLAIMS in progress inside the (wider) knockback ring are pushed back a
- *     fraction, exactly as they always were.
+ * (An earlier version of this shoved any enemy tile touching your seedling back to
+ * bare soil. That was a free attack disguised as a defence, and it is gone.)
  *
- * Splitting it that way is deliberate. A defence that also erased an assault in
- * progress would mean a seedling could never fall to anyone whose opponent happened
- * to be paying attention, which turns the most decisive play in the game into a test
- * of who was looking at their phone. So the numbers on a seedling siege are
- * unchanged: the attacker still wins that exchange on time.
+ * The knockback is deliberately partial. The attacker keeps the cell if any progress
+ * survives and simply carries on — they do not even have to tap again. A defence
+ * that erased an assault outright would mean a seedling could never fall to anyone
+ * whose opponent happened to be paying attention, which turns the most decisive play
+ * in the game into a test of who was looking at their phone. So a defence BUYS TIME
+ * and nothing else, and sustained pressure gets through.
  *
- * Every tile defends, not just the seedling — a garden is a thing that fights back
- * everywhere — but a seedling defends a ring wider than an ordinary tile does.
+ * Every tile defends, not just the seedling — a garden is a thing that digs in
+ * everywhere, including in a pocket that has been cut off and can do nothing else.
  *
  * A defence that finds nothing to push costs nothing and starts no cooldown, so
  * mashing it is pointless rather than ruinous.
  */
 export const REPEL_COST = 2;
-/**
- * ...plus this much per tile destroyed. Burning twelve tiles off your doorstep is a
- * real play and it costs real energy; if you cannot pay for all of them you clear
- * the nearest ones you CAN afford rather than being refused outright.
- */
-export const REPEL_KILL_COST = 1;
 /** Manhattan radius in which hostile claims in progress are knocked back. */
 export const REPEL_RADIUS = 2;
-/** Manhattan radius in which enemy TILES are destroyed, from an ordinary tile... */
-export const REPEL_KILL_RADIUS = 1;
-/** ...and from a seedling, which defends itself far more fiercely. */
-export const REPEL_HOME_KILL_RADIUS = 2;
 /**
- * Fraction of an assault's progress a repel removes. Deliberately less than the
+ * Fraction of an assault's progress a defence removes. Deliberately less than the
  * attacker regains before the cooldown is up — see the note above.
  */
 export const REPEL_KNOCKBACK = 0.35;
 /** Seconds before that seat may defend again, from anywhere. One shared cooldown. */
-export const REPEL_COOLDOWN = 4;
+export const REPEL_COOLDOWN = 3;
 
 /**
  * Extra energy per friendly neighbour the DEFENDER has around the tile you are

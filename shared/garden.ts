@@ -19,10 +19,10 @@
  */
 
 import type { Board, Cell, GameMode, MapKind, MatchState, Net, RoleDef, RoleId, Seat, TechDef, TechId } from './bloom.js';
-import { BOARD_H, BOARD_W, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KILL_COST, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
+import { BOARD_H, BOARD_W, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
 import type { BloomEvent } from './bloom.js';
 import { makeRng } from './math.js';
-import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelCost, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
+import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
 
 /** One competitor. The server fills these from its lobby; solo play fabricates them. */
 export interface GardenSeat {
@@ -618,97 +618,56 @@ export class Garden {
   }
 
   /**
-   * DEFEND — burn the enemy off the ground around one of your tiles.
+   * DEFEND — shove an assault on one of your tiles back.
    *
-   * Both halves are hostile-only (an ally leaning on your base is not leaning on it),
-   * and both are computed by `repelHits`, which the renderer also calls to decide
-   * what to light up. One rule, one answer, no drift.
+   * Hostile claims only (an ally leaning on your ground is not leaning on it), and
+   * ONLY claims: this never touches a tile somebody owns. Holding your ground is not
+   * a way to take theirs. What it does is push every hostile claim in range back by
+   * REPEL_KNOCKBACK — not cancel it. The attacker keeps the cell if any progress
+   * survives and carries on without even tapping again, which is why the attacker
+   * still wins a siege on time against a defender who never misses a cooldown.
    *
-   *  1. Enemy TILES inside the kill ring are destroyed — back to bare soil, not to
-   *     you. A defence denies ground; it does not harvest it.
-   *  2. Enemy CLAIMS in the wider ring are knocked BACK by REPEL_KNOCKBACK, not
-   *     cancelled. The attacker keeps the cell if any progress survives and simply
-   *     carries on. See REPEL_COST for why the attacker is meant to win a siege on
-   *     time even against a defender who never misses a cooldown.
+   * `repelHits` decides the targets and the renderer calls the same function to
+   * decide what to light up. One rule, one answer, no drift.
    *
-   * The energy budget is a real constraint: burning tiles is priced per tile, so a
-   * poor defender clears the NEAREST ones they can afford rather than being refused
-   * outright — the tiles on your doorstep are the ones you meant anyway.
-   *
-   * Then the seat goes on cooldown, which is the real limit: energy is uncapped, so
-   * without one a rich defender could clear their whole border every tick.
+   * Paid by the network being defended, at ITS supply cost — a far-flung outpost is
+   * expensive to hold as well as to expand from. Then the seat goes on cooldown,
+   * which is the real limit on how often a garden can dig in.
    *
    * Returns the energy spent, or 0 when there was nothing to push — mashing a tile
-   * in open ground is pointless rather than ruinous, and starts no cooldown.
+   * nobody is attacking is pointless rather than ruinous, and starts no cooldown.
    */
   private repel(seat: number, cell: number): number {
     const s = this.state;
     const me = s.seats[seat];
     if (!me) return 0;
     const hits = repelHits(s.board, s.allies, seat, cell, repelBonus(me));
-    if (hits.kill.length === 0 && hits.knock.length === 0) return 0;
+    if (hits.length === 0) return 0;
 
-    // Nearest first, so a partial budget buys the tiles actually on top of you.
-    const p = xy(cell);
-    const dist = (i: number) => {
-      const q = xy(i);
-      return Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
-    };
-    const kills = [...hits.kill].sort((a, b) => dist(a) - dist(b));
-    /*
-     * Defence is paid by the network being defended, at ITS supply cost. Holding a
-     * far-flung outpost is expensive to defend as well as to take ground with, and a
-     * pocket cut off from your barns fights on whatever it managed to store.
-     */
     const here = s.board.cells[cell];
     const net = here.net;
     const mul = supplyMul(here.dist < 0 ? FAR_FROM_STORE : here.dist);
+    const cost = REPEL_COST * mul;
     const fuel = s.board.nets[net]?.fuel ?? 0;
-    const budget = Math.max(
-      0,
-      Math.floor((fuel - REPEL_COST * mul) / Math.max(0.01, REPEL_KILL_COST * mul)),
-    );
-    const burn = kills.slice(0, budget);
-
-    for (const i of burn) {
-      const c = s.board.cells[i];
-      const from = c.owner;
-      c.owner = -1;
-      c.claimant = -1;
-      c.progress = 0;
-      c.wither = 0;
-      c.spore = 0;
-      // A granary caught in the blast burns with everything in it. Defence destroys;
-      // only a capture loots (see `loot`).
-      c.store = 0;
-      c.fuel = 0;
-      this.emit({ t: 'withered', cell: i, seat: from });
+    if (fuel < cost) {
+      this.emit({ t: 'denied', cell, seat, reason: 'energy' });
+      return 0;
     }
-    let knocked = 0;
-    for (const i of hits.knock) {
+
+    for (const i of hits) {
       const c = s.board.cells[i];
-      if (c.claimant < 0) continue; // already cleared by the burn above
       c.progress -= REPEL_KNOCKBACK;
       // Only a claim knocked all the way to nothing actually breaks off.
       if (c.progress <= 0) {
         c.progress = 0;
         c.claimant = -1;
       }
-      knocked++;
     }
 
-    const pushed = burn.length + knocked;
-    if (pushed === 0) {
-      // There WAS something to burn and the budget did not stretch to one tile of
-      // it. Say so, or the tap reads as the defence being broken rather than skint.
-      if (hits.kill.length > 0) this.emit({ t: 'denied', cell, seat, reason: 'energy' });
-      return 0;
-    }
     me.repelCooldown = REPEL_COOLDOWN * (this.techFor(seat).has('reflex') ? TECH_REFLEX_COOLDOWN : 1);
-    this.emit({ t: 'repel', cell, seat, count: pushed });
-    const spent = repelCost(burn.length) * mul;
-    this.spend(net, Math.min(spent, fuel), cell);
-    return spent;
+    this.emit({ t: 'repel', cell, seat, count: hits.length });
+    this.spend(net, cost, cell);
+    return cost;
   }
 
   tap(seat: number, cell: number): boolean {
@@ -2072,10 +2031,9 @@ export class Garden {
      * deliberately skips cells under claim — including its own tiles, which are the
      * ones it must not skip.
      *
-     * A seedling under assault is answered unconditionally; anywhere else it wants a
-     * worthwhile blast, so it does not burn its one cooldown on a single stray tile.
-     * Tiles are worth more than knocked claims because destroying ground is permanent
-     * and a knockback is only a delay.
+     * A seedling under assault is answered unconditionally; anywhere else it wants
+     * two claims to push at once, so it does not spend its one cooldown delaying a
+     * single tile it could simply retake later.
      */
     if (s.seats[seat].repelCooldown <= 0) {
       let bestCell = -1;
@@ -2086,14 +2044,14 @@ export class Garden {
         if (c.owner !== seat) continue;
         const hits = repelHits(s.board, s.allies, seat, i, bonus);
         const siege = c.kind === 'home' && c.claimant >= 0 && c.claimant !== seat && c.progress > 0;
-        const score = hits.kill.length * 2 + hits.knock.length + (siege ? 6 : 0);
+        const score = hits.length + (siege ? 6 : 0);
         if (score > bestScore) {
           bestScore = score;
           bestCell = i;
         }
       }
-      // Two tiles' worth of damage, or a heart being eaten. Below that, keep growing.
-      if (bestCell >= 0 && bestScore >= 4 && this.tap(seat, bestCell)) return;
+      // Two assaults at once, or a heart being eaten. Below that, keep growing.
+      if (bestCell >= 0 && bestScore >= 2 && this.tap(seat, bestCell)) return;
     }
 
     // Distance is measured to the NEAREST seedling this seat holds, not to the one

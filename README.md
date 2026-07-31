@@ -96,20 +96,21 @@ plays on for as long as it holds a single tile.
 
 ## Defence
 
-**Tap any tile you own.** Two energy plus one per tile burned:
+**Tap any tile you own** — not just the seedling. Two energy, times the supply-line
+multiplier for that tile.
 
-- every enemy **tile** in the ring around it is **destroyed** — back to bare soil, not
-  captured, so it is a denial rather than a free harvest. A seedling clears two rings, an
-  ordinary tile clears one.
-- every enemy **claim** in progress nearby is knocked part of the way back.
+It does exactly one thing: **every enemy claim in progress nearby is knocked part of the
+way back.** A defence does not touch enemy *tiles* — it never destroys them, never takes
+them. Defending is not a way to attack; ground somebody already owns is answered by
+attacking it, which is a different tap at a different price.
 
-Then the whole garden goes on a 4-second cooldown, and the price is multiplied by how far
-that tile is from one of your granaries. A defence with nothing to push costs nothing.
+The knockback is partial on purpose. The attacker keeps the cell if any progress survives
+and carries on without even tapping again, so **the attacker holds the advantage during a
+siege by design.** They picked the moment, they are watching the fight, and nothing warns
+you that your heart is being eaten. A defence buys time and nothing else.
 
-Splitting it that way is deliberate: burning a lodgement off your ground is decisive, but
-an assault already under way is only *delayed*, so **the attacker still holds the advantage
-during a siege on purpose.** They picked the moment, they are watching the fight, and
-nothing warns you that your heart is being eaten.
+Then the whole garden goes on a 3-second cooldown. A defence with nothing to push costs
+nothing.
 
 ## The draft
 
