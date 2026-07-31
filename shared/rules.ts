@@ -156,6 +156,40 @@ export const ROLE_LIST: RoleDef[] = [
     sporeLife: 0,
     parasite: true,
   },
+  {
+    id: 'tree',
+    name: 'TREE',
+    /*
+     * The one faction that asks nothing of you.
+     *
+     * It has NO taps at all: `creep` means it cannot hand-plant (the same rule that
+     * stops FUNGAL planting), and `pacifist` means it cannot attack. You pick TREE,
+     * you put the phone down, and the wood spreads. Everything it covers it keeps
+     * forever, and it can never take a cell off another player to get it — so the
+     * only thing it competes for is empty ground, and the only way to beat it is to
+     * get there first.
+     *
+     * Slow on purpose: `creep` here is several times FUNGAL's, because a plant that
+     * cannot lose ground compounds, and the only brake available is the clock.
+     */
+    blurb: 'spreads on its own, forever — nothing can take it back',
+    colour: '#9d7b4f',
+    growTime: 2.4,
+    captureTime: 99,
+    growCost: 0,
+    attackCost: 0,
+    witherMul: 0.01,
+    toughness: 3,
+    reach: 1,
+    blockSize: 1,
+    remote: false,
+    sporeLife: 0,
+    rootsAnywhere: true,
+    poisonImmune: true,
+    permanent: true,
+    pacifist: true,
+    creep: 7,
+  },
 ];
 
 const BY_ID = new Map<RoleId, RoleDef>(ROLE_LIST.map((r) => [r.id, r]));
@@ -266,6 +300,9 @@ export function legalTap(
   const victim = seats[c.owner];
   if (victim && !victim.alive) return touching ? 'grow' : null;
   if (peace) return null; // the opening truce — see PEACE_SEC
+  // A TREE never takes ground, and its ground is never taken. See `permanent`.
+  if (role.pacifist) return null;
+  if (victim && getRole(victim.role ?? 'vine').permanent) return null;
   return touching ? 'attack' : null;
 }
 

@@ -598,6 +598,11 @@ export class Garden {
     if (owned.has('mycelium') && r.creep) r.creep *= 0.5;
     if (owned.has('enzyme') && r.digest) r.digest += TECH_ENZYME_BONUS;
     if (owned.has('rot') && r.creep) r.creep *= 0.5;
+
+    // --- TREE: one line, each step the same promise kept harder
+    if (owned.has('grove') && r.creep) r.creep *= 0.75;
+    if (owned.has('orchard') && r.creep) r.creep *= 0.7;
+    if (owned.has('oldgrowth') && r.creep) r.creep *= 0.6;
     if (owned.has('putrefy')) r.captureTime *= TECH_PUTREFY_CAPTURE;
     // 'bloomcap' is handled at capture time; 'hive' and 'spawnsac' in `hatchInsect`.
 
@@ -1392,7 +1397,12 @@ export class Garden {
       const prey = this.atPeace ? [] : adj.filter((n) => {
         const c = s.board.cells[n];
         return (
-          c.owner >= 0 && c.owner !== bug.seat && !isAllied(s.allies, bug.seat, c.owner) && c.kind !== 'home'
+          c.owner >= 0 &&
+          c.owner !== bug.seat &&
+          !isAllied(s.allies, bug.seat, c.owner) &&
+          c.kind !== 'home' &&
+          // Grubs cannot chew through a TREE either. See `permanent`.
+          !this.roleOf(c.owner).permanent
         );
       });
       if (prey.length > 0) {

@@ -158,7 +158,7 @@ export interface Board {
 
 // ============================================================ roles
 
-export type RoleId = 'vine' | 'moss' | 'spore' | 'thorn' | 'fungal';
+export type RoleId = 'vine' | 'moss' | 'spore' | 'thorn' | 'fungal' | 'tree';
 
 export interface RoleDef {
   id: RoleId;
@@ -232,6 +232,23 @@ export interface RoleDef {
   creep?: number;
   /** FUNGAL: energy gained per tile eaten. Growth is fed by digestion. */
   digest?: number;
+  /**
+   * TREE: what this plant grows over is grown over for good.
+   *
+   * Nothing takes a permanent tile back — not a capture, not an insect, not a 9x9
+   * of acid. Enforced in three places because there are exactly three ways a tile
+   * changes hands: `legalTap` refuses the claim, `stepInsects` skips it as prey, and
+   * `hostileTakeover` passes over it. Miss one and "permanent" is a lie.
+   */
+  permanent?: boolean;
+  /**
+   * TREE: cannot take ground off another player at all, ever.
+   *
+   * The other half of the bargain. A faction that can never lose a tile must never
+   * be able to take one either, or it simply accumulates the board. All it may do is
+   * spread into ground nobody has claimed yet.
+   */
+  pacifist?: boolean;
 }
 
 // ============================================================ tech
@@ -304,6 +321,10 @@ export type TechId =
   | 'brood'
   | 'hive'
   | 'rot'
+  // TREE — one straight line, no forks. The simplest faction gets the simplest tree.
+  | 'grove'
+  | 'orchard'
+  | 'oldgrowth'
   | 'putrefy'
   | 'spawnsac'
   // THORN
@@ -408,6 +429,15 @@ export const TECHS: TechDef[] = [
   { id: 'bloomcap', name: 'BLOOMCAP', blurb: 'eaten tiles creep too', cost: 14, currency: 'acid', icon: '✿', role: 'fungal', tier: 2 },
   { id: 'putrefy', name: 'PUTREFY', blurb: 'chews through tiles far faster', cost: 16, currency: 'wood', icon: '⚱', role: 'fungal', tier: 2 },
   { id: 'rot', name: 'ROT', blurb: 'the mycelium never stops', cost: 24, currency: 'wood', icon: '☣', role: 'fungal', tier: 3 },
+
+  /*
+   * TREE — one straight line and nothing to weigh up. Every step means the same
+   * thing (the wood spreads faster) and each is strictly better than the last, which
+   * is the right shape for the faction people pick when they do not want to think.
+   */
+  { id: 'grove', name: 'GROVE', blurb: 'the wood spreads faster', cost: 8, currency: 'wood', icon: '🌱', role: 'tree', tier: 1 },
+  { id: 'orchard', name: 'ORCHARD', blurb: 'faster still', cost: 16, currency: 'wood', icon: '🌳', role: 'tree', tier: 2 },
+  { id: 'oldgrowth', name: 'OLD GROWTH', blurb: 'the forest takes the world', cost: 26, currency: 'wood', icon: '🌲', role: 'tree', tier: 3 },
   { id: 'spawnsac', name: 'SPAWNSAC', blurb: 'insects live far longer', cost: 20, currency: 'wood', icon: '🥚', role: 'fungal', tier: 3 },
   /*
    * The insects are FUNGAL's endgame, and they are priced like it. Nothing else in

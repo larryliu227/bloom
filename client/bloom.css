@@ -727,8 +727,9 @@ body[data-sky="day"] .board-wrap { background: radial-gradient(120% 80% at 50% 0
   font: inherit;
   cursor: pointer;
 }
-/* The fifth plant spans the row so the grid never ends on a lonely half-width card. */
-.draft-chip:nth-child(5) { grid-column: 1 / -1; }
+/* Six plants tile as a clean 2x3. The old rule spanned an odd fifth card and would
+   now strand the sixth on its own. */
+.draft-chip:nth-child(odd):last-child { grid-column: 1 / -1; }
 .draft-chip:active:not(:disabled) { transform: translateY(2px); }
 .draft-chip.on { background: #16301f; border-color: var(--role); }
 .draft-chip-name { font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: var(--role); }

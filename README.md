@@ -82,6 +82,7 @@ Not by stat block. From an identical opening position they produce
 | **MOSS** | claims a 2x2 block, tough, resists cutting |
 | **SPORE** | hops over walls; a landing roots and becomes a second seedling |
 | **THORN** | plants normally, but every capture infects the neutral cells around it |
+| **TREE** | does nothing. It has no taps at all — the wood just spreads, slowly, on its own. Everything it covers it keeps **forever**, and it can never take a cell off anybody to get it. The faction for putting the phone down |
 | **FUNGAL** | never taps to grow — the mycelium creeps on its own. It does not photosynthesise: **eating is its only income**, so its bite is free and everything else it does is paid for out of somebody else's garden. Roots anywhere, so it cannot be cut |
 
 Plus: territory pays energy (ground compounds), a 60-second day/night cycle, insects that
