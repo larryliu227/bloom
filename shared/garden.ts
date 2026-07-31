@@ -19,7 +19,7 @@
  */
 
 import type { Board, Cell, GameMode, MapKind, MatchState, Net, RoleDef, RoleId, Seat, TechDef, TechId } from './bloom.js';
-import { BOARD_H, BOARD_W, CAPTURE_SLOWDOWN, PEACE_SEC, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
+import { BOARD_H, BOARD_W, CAPTURE_SLOWDOWN, PEACE_SEC, TREE_PLANT_SIZE, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
 import type { BloomEvent } from './bloom.js';
 import { makeRng } from './math.js';
 import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
@@ -378,6 +378,9 @@ export class Garden {
         sun: 0,
         wood: 0,
         repelCooldown: 0,
+        // Starts ready: the truce (not a cooldown) is what holds the first forest
+        // back, so it lands the moment the peace lifts. See `plantGrove`.
+        plantCooldown: 0,
       });
       this.botClock.push(0.4 + this.rng() * 0.8);
       this.offers.push(new Set());
@@ -865,6 +868,7 @@ export class Garden {
     this.stepEnergy(dt);
     for (const seat of s.seats) {
       if (seat.repelCooldown > 0) seat.repelCooldown = Math.max(0, seat.repelCooldown - dt);
+      if (seat.plantCooldown > 0) seat.plantCooldown = Math.max(0, seat.plantCooldown - dt);
     }
     this.stepCreep(dt);
     this.stepInsects(dt);
@@ -1342,6 +1346,102 @@ export class Garden {
       }
     }
     return { cell: bestCell, gain: bestGain };
+  }
+
+  /**
+   * TREE's planting. A solid TREE_PLANT_SIZE block, dropped anywhere on the board.
+   *
+   * Everything inside it is simply gone: enemy tiles, unclaimed ground, and rock —
+   * a forest does not negotiate with a boulder, and turning walls into woodland is
+   * the one thing in the game that rewrites the map's shape permanently.
+   *
+   * Two exceptions, both load-bearing:
+   *  - SEEDLINGS survive. Deleting a heart from across the board with no approach
+   *    and no warning would let TREE eliminate somebody every minute with no
+   *    counterplay whatsoever. HOSTILE TAKEOVER spares them for the same reason.
+   *  - Other PERMANENT tiles survive, because permanent means permanent even when
+   *    the thing arriving is another tree.
+   */
+  plantGrove(seat: number, cell: number): boolean {
+    const s = this.state;
+    if (s.phase !== 'playing') return false;
+    const me = s.seats[seat];
+    if (!me?.alive) return false;
+    const role = this.roleOf(seat);
+    if (!role.plant) return false;
+    /*
+     * The truce holds for TREE too. A planting destroys enemy tiles, which is
+     * violence however quietly the wood does it — without this, the one faction that
+     * needs no setup would open every match by razing somebody while the rest of the
+     * board was still forbidden from touching each other.
+     */
+    if (this.atPeace) return false;
+    if (me.plantCooldown > 0) return false;
+    if (!s.board.cells[cell]) return false;
+
+    const half = Math.floor(TREE_PLANT_SIZE / 2);
+    const p = xy(cell);
+    let planted = 0;
+    let razed = 0;
+    for (let dy = -half; dy < TREE_PLANT_SIZE - half; dy++) {
+      for (let dx = -half; dx < TREE_PLANT_SIZE - half; dx++) {
+        const x = p.x + dx;
+        const y = p.y + dy;
+        if (!inside(x, y)) continue;
+        const i = idx(x, y);
+        const c = s.board.cells[i];
+        if (c.kind === 'home') continue;
+        if (c.owner >= 0 && c.owner !== seat && this.roleOf(c.owner).permanent) continue;
+        if (c.kind === 'rock') {
+          c.kind = 'soil';
+          razed++;
+        }
+        if (c.owner >= 0 && c.owner !== seat) {
+          this.emit({ t: 'withered', cell: i, seat: c.owner });
+        }
+        c.owner = seat;
+        c.claimant = -1;
+        c.progress = 0;
+        c.wither = 0;
+        c.spore = 0;
+        planted++;
+      }
+    }
+    if (planted === 0) return false;
+    me.plantCooldown = role.plant;
+    this.emit({ t: 'grove', cell, seat, planted, razed });
+    return true;
+  }
+
+  /** Where would a 4x4 forest do the most? Enemy ground first, empty ground second. */
+  private bestGrove(seat: number): number {
+    const s = this.state;
+    const half = Math.floor(TREE_PLANT_SIZE / 2);
+    let bestCell = -1;
+    let bestScore = -1;
+    for (let i = 0; i < s.board.cells.length; i++) {
+      const p = xy(i);
+      let score = 0;
+      for (let dy = -half; dy < TREE_PLANT_SIZE - half; dy++) {
+        for (let dx = -half; dx < TREE_PLANT_SIZE - half; dx++) {
+          const x = p.x + dx;
+          const y = p.y + dy;
+          if (!inside(x, y)) continue;
+          const c = s.board.cells[idx(x, y)];
+          if (c.kind === 'home') continue;
+          if (c.owner === seat) continue;
+          if (c.owner >= 0 && this.roleOf(c.owner).permanent) continue;
+          // Taking it off somebody is worth far more than filling a gap.
+          score += c.owner >= 0 ? 3 : 1;
+          if (c.kind === 'rock') score += 0.5; // opening a wall is worth something
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestCell = i;
+      }
+    }
+    return bestCell;
   }
 
   /** Hatch an insect on one of this seat's tiles. Returns false if it cannot. */
@@ -2032,6 +2132,17 @@ export class Garden {
     this.stepBotDiplomacy(seat);
 
     /*
+     * TREE plants. It is the faction's only move, so a bot that never made it would
+     * be a bot that never played at all — it has no taps to fall through to.
+     * Aims where the block takes the most ground off somebody else, and settles for
+     * open space when there is no good target.
+     */
+    if (role.plant && s.seats[seat].plantCooldown <= 0) {
+      const spot = this.bestGrove(seat);
+      if (spot >= 0 && this.plantGrove(seat, spot)) return;
+    }
+
+    /*
      * SPORE fires HOSTILE TAKEOVER. Without this the bot never once used the ability
      * the whole faction is built around, which made every balance number measured
      * against it meaningless — and made a solo match against SPORE a match against
@@ -2171,6 +2282,13 @@ export class Garden {
         if (kind && kind !== 'repel') canAct = true;
       }
       if (!canAct && role.creep) canAct = this.hasCreepRoom(seat.seat);
+      /*
+       * A TREE never has a legal tap in its life — no capture, no hand-planting —
+       * so without this it is declared entombed and eliminated on the first tick of
+       * every match. Its liveness is the planting clock: there is always another
+       * forest coming, and somewhere on the board to drop it.
+       */
+      if (!canAct && role.plant) canAct = true;
       /*
        * ...and neither is holding a besieged pocket. A network with a granary and no
        * seedling is explicitly alive-but-frozen: it cannot gain ground, and killing

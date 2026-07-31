@@ -105,6 +105,8 @@ export type ClientMsg =
    * An item rather than a tech — you buy it every time you use it.
    */
   | { t: 'takeover'; cell: number }
+  /** TREE only: drop a 4x4 forest centred on `cell`. Once a minute, no cost. */
+  | { t: 'grove'; cell: number }
   /**
    * Offer a pact to `seat` — or, if they have already offered, accept it; or, if
    * you are already allied, betray them. One message for all three because from

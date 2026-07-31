@@ -21,7 +21,7 @@ import { getRole, isBeingTaken, legalCells, legalTap, neighbours, repelBonus, re
 import type { TapKind } from '@shared/rules.js';
 
 /** Which item is waiting for a board target, if any. */
-export type ArmedKind = null | 'takeover' | 'build';
+export type ArmedKind = null | 'takeover' | 'build' | 'grove';
 
 export interface BoardCallbacks {
   /** A committed tap. The caller sends it; the server decides what it meant. */

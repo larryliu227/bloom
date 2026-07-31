@@ -242,13 +242,18 @@ export interface RoleDef {
    */
   permanent?: boolean;
   /**
-   * TREE: cannot take ground off another player at all, ever.
-   *
-   * The other half of the bargain. A faction that can never lose a tile must never
-   * be able to take one either, or it simply accumulates the board. All it may do is
-   * spread into ground nobody has claimed yet.
+   * TREE: cannot take ground the ordinary way — no tap ever captures anything.
+   * Everything it takes, it takes with `plant`.
    */
   pacifist?: boolean;
+  /**
+   * TREE: seconds between plantings. Its entire input, once a minute.
+   *
+   * The whole faction is one decision on a long timer: where does the forest go
+   * next. Nothing to manage in between, nothing to lose if you look away, and the
+   * thing you do when the timer comes up is enormous.
+   */
+  plant?: number;
 }
 
 // ============================================================ tech
@@ -561,6 +566,11 @@ export interface Seat {
   /** Seconds until this seat may repel again. 0 when ready. */
   repelCooldown: number;
   /**
+   * TREE: seconds until the next planting is ready. 0 means it is, and the HUD says
+   * so. Meaningless for every other plant.
+   */
+  plantCooldown: number;
+  /**
    * This garden's colour on the board, fixed for the match.
    *
    * Belongs to the SEAT, not the plant: two players may draft the same plant, so
@@ -677,6 +687,8 @@ export type BloomEvent =
   | { t: 'looted'; cell: number; seat: number; from: number; fuel: number }
   /** HOSTILE TAKEOVER landed: `cell` is the centre, `cleared` tiles evaporated. */
   | { t: 'takeover'; cell: number; seat: number; cleared: number; seeded: number }
+  /** TREE dropped a forest: `planted` cells taken, `razed` of them were rock. */
+  | { t: 'grove'; cell: number; seat: number; planted: number; razed: number }
   | { t: 'eliminated'; seat: number }
   | { t: 'win'; seat: number; reason: 'home' | 'territory' | 'blight' };
 
@@ -859,6 +871,20 @@ export const CAPTURE_SLOWDOWN = 2.5;
  * only thing held back is violence.
  */
 export const PEACE_SEC = 30;
+
+/**
+ * TREE's planting: a solid block this many cells on a side, dropped ANYWHERE.
+ *
+ * It does not creep and it cannot capture. Once a minute it simply arrives, and
+ * what it lands on is gone — enemy tiles, and rock walls too. A forest does not
+ * negotiate with a boulder.
+ *
+ * Seedlings are the one exception, for the same reason HOSTILE TAKEOVER spares
+ * them: an ability that deletes a heart from across the board with no approach and
+ * no warning would make the fifteen-second seedling rule meaningless, and would let
+ * one faction eliminate somebody a minute with no counterplay at all.
+ */
+export const TREE_PLANT_SIZE = 4;
 
 /**
  * DEFENCE — tap ANY tile you own to shove an assault on it back.

@@ -42,6 +42,8 @@ interface Session {
   takeover(cell: number): void;
   /** Put a nutrient store on one of your own tiles. */
   build(cell: number): void;
+  /** TREE only: drop a 4x4 forest centred on `cell`. */
+  plantGrove(cell: number): void;
   buyTech(id: TechId): void;
   hatch(): void;
   pact(seat: number): void;
@@ -104,6 +106,9 @@ class SoloSession implements Session {
   build(cell: number): void {
     this.garden.buildStore(0, cell);
   }
+  plantGrove(cell: number): void {
+    this.garden.plantGrove(0, cell);
+  }
   pact(seat: number): void {
     this.garden.setPact(0, seat);
   }
@@ -157,6 +162,9 @@ class OnlineSession implements Session {
   build(cell: number): void {
     this.conn.build(cell);
   }
+  plantGrove(cell: number): void {
+    this.conn.plantGrove(cell);
+  }
   pact(seat: number): void {
     this.conn.pact(seat);
   }
@@ -209,6 +217,8 @@ class Bloom {
   private sunEl: HTMLElement | null = null;
   private woodEl: HTMLElement | null = null;
   private takeoverBtn: HTMLButtonElement | null = null;
+  private groveBtn: HTMLButtonElement | null = null;
+  private groveCost: HTMLElement | null = null;
   private buildBtn: HTMLButtonElement | null = null;
   /**
    * Which item, if any, is waiting for a target on the board.
@@ -216,7 +226,7 @@ class Bloom {
    * Two things arm now, and they must be mutually exclusive: firing a 9x9 nuke when
    * you meant to put up a granary is not a mistake anyone should be able to make.
    */
-  private arming: null | 'takeover' | 'build' = null;
+  private arming: null | 'takeover' | 'build' | 'grove' = null;
 
   constructor(overlay: HTMLElement) {
     this.overlay = overlay;
@@ -228,6 +238,7 @@ class Bloom {
         this.arming = null;
         if (what === 'takeover') this.session?.takeover(cell);
         else if (what === 'build') this.session?.build(cell);
+        else if (what === 'grove') this.session?.plantGrove(cell);
         this.refreshArmed();
       },
       onSever: () => {},
@@ -646,9 +657,23 @@ class Bloom {
       this.refreshArmed();
     });
 
+    /*
+     * PLANT A FOREST. TREE's only input, once a minute — so the button is also its
+     * only clock, and it reads the cooldown rather than a price.
+     */
+    this.groveBtn = el('button', 'hud-act hidden') as HTMLButtonElement;
+    this.groveBtn.appendChild(el('span', 'hud-act-icon', '🌲'));
+    this.groveCost = el('span', 'hud-act-cost', '');
+    this.groveBtn.appendChild(this.groveCost);
+    this.groveBtn.addEventListener('click', () => {
+      this.arming = this.arming === 'grove' ? null : 'grove';
+      this.refreshArmed();
+    });
+
     bar.appendChild(back);
     bar.appendChild(purse);
     bar.appendChild(this.buildBtn);
+    bar.appendChild(this.groveBtn);
     bar.appendChild(this.hatchBtn);
     bar.appendChild(this.takeoverBtn);
     bar.appendChild(ally);
@@ -736,6 +761,7 @@ class Bloom {
   private refreshArmed(): void {
     this.takeoverBtn?.classList.toggle('armed', this.arming === 'takeover');
     this.buildBtn?.classList.toggle('armed', this.arming === 'build');
+    this.groveBtn?.classList.toggle('armed', this.arming === 'grove');
     this.view.setArmed(this.arming);
   }
 
@@ -989,6 +1015,18 @@ class Bloom {
       this.takeoverBtn.classList.toggle('hidden', !canCast);
       this.takeoverBtn.disabled = !canCast || !me || me.acid < TAKEOVER_COST;
       if (this.arming === 'takeover' && this.takeoverBtn.disabled) {
+        this.arming = null;
+        this.refreshArmed();
+      }
+    }
+    if (this.groveBtn) {
+      // TREE only. The label counts the forest down, and reads READY when it is.
+      const isTree = me?.role === 'tree';
+      this.groveBtn.classList.toggle('hidden', !isTree);
+      const left = me?.plantCooldown ?? 0;
+      this.groveBtn.disabled = !isTree || left > 0;
+      if (this.groveCost) this.groveCost.textContent = left > 0 ? `${Math.ceil(left)}s` : 'NOW';
+      if (this.arming === 'grove' && this.groveBtn.disabled) {
         this.arming = null;
         this.refreshArmed();
       }

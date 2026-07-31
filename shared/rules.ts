@@ -162,17 +162,15 @@ export const ROLE_LIST: RoleDef[] = [
     /*
      * The one faction that asks nothing of you.
      *
-     * It has NO taps at all: `creep` means it cannot hand-plant (the same rule that
-     * stops FUNGAL planting), and `pacifist` means it cannot attack. You pick TREE,
-     * you put the phone down, and the wood spreads. Everything it covers it keeps
-     * forever, and it can never take a cell off another player to get it — so the
-     * only thing it competes for is empty ground, and the only way to beat it is to
-     * get there first.
+     * It has NO ordinary taps: `pacifist` means no tap of its ever captures
+     * anything. Its entire input is ONE decision a minute — where to drop a 4x4
+     * block of forest, which may go anywhere on the board and destroys whatever it
+     * lands on, rock walls included.
      *
-     * Slow on purpose: `creep` here is several times FUNGAL's, because a plant that
-     * cannot lose ground compounds, and the only brake available is the clock.
+     * Everything it plants it keeps forever (`permanent`). The clock is the only
+     * brake, which is why it is a whole minute.
      */
-    blurb: 'spreads on its own, forever — nothing can take it back',
+    blurb: 'once a minute, drop a forest anywhere — it never leaves',
     colour: '#9d7b4f',
     growTime: 2.4,
     captureTime: 99,
@@ -188,7 +186,7 @@ export const ROLE_LIST: RoleDef[] = [
     poisonImmune: true,
     permanent: true,
     pacifist: true,
-    creep: 7,
+    plant: 60,
   },
 ];
 

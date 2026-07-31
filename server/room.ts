@@ -665,6 +665,15 @@ export class Room {
         return;
       }
 
+      case 'grove': {
+        const garden = this.playable(member);
+        if (!garden) return;
+        const cell = msg.cell;
+        if (!Number.isInteger(cell) || cell < 0 || cell >= garden.state.board.cells.length) return;
+        garden.plantGrove(member.seat, cell);
+        return;
+      }
+
       case 'takeover': {
         const garden = this.playable(member);
         if (!garden) return;
