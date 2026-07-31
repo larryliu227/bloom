@@ -387,12 +387,12 @@ export const TECHS: TechDef[] = [
   { id: 'surge', name: 'SURGE', blurb: 'everything grows faster', cost: 8, currency: 'acid', icon: '⚡', tier: 1 },
   { id: 'sprig', name: 'SPRIG', blurb: 'planting costs less', cost: 12, currency: 'acid', icon: '🌱', tier: 2 },
   // FUNGAL eats for free already, so a discount on eating is nothing to it.
-  { notFor: ['fungal'], id: 'sap', name: 'SAP', blurb: 'eating costs less', cost: 12, currency: 'wood', icon: '💧', tier: 2 },
+  { notFor: ['fungal'], id: 'sap', name: 'SAP', blurb: 'eating costs less', cost: 12, currency: 'acid', icon: '💧', tier: 2 },
   // Neither rot-plant can be cut (both root anywhere), so wither techs are dead buys.
   { notFor: ['fungal', 'spore'], id: 'deeproot', name: 'DEEP ROOT', blurb: 'cut vines hang on longer', cost: 10, currency: 'acid', icon: '⚓', tier: 1 },
-  { notFor: ['fungal', 'spore'], id: 'compost', name: 'COMPOST', blurb: 'every tile you hold feeds you more', cost: 12, currency: 'wood', icon: '❂', tier: 2 },
-  { id: 'heartwood', name: 'HEARTWOOD', blurb: 'your seedlings take much longer to lose', cost: 20, currency: 'wood', icon: '♥', tier: 3 },
-  { id: 'husk', name: 'HUSK', blurb: 'all your ground is tougher to eat', cost: 16, currency: 'wood', icon: '🥥', tier: 3 },
+  { notFor: ['fungal', 'spore'], id: 'compost', name: 'COMPOST', blurb: 'every tile you hold feeds you more', cost: 12, currency: 'acid', icon: '❂', tier: 2 },
+  { id: 'heartwood', name: 'HEARTWOOD', blurb: 'your seedlings take much longer to lose', cost: 20, currency: 'acid', icon: '♥', tier: 3 },
+  { id: 'husk', name: 'HUSK', blurb: 'all your ground is tougher to eat', cost: 16, currency: 'acid', icon: '🥥', tier: 3 },
   { id: 'solar', name: 'SOLAR', blurb: 'sun tiles feed you more', cost: 8, currency: 'sun', icon: '☀', tier: 1 },
   { id: 'zenith', name: 'ZENITH', blurb: 'your suns keep feeding after dark', cost: 18, currency: 'sun', icon: '✷', tier: 3 },
   { id: 'dew', name: 'DEW', blurb: 'a steadier trickle of energy', cost: 10, currency: 'sun', icon: '💦', tier: 2 },
@@ -404,28 +404,28 @@ export const TECHS: TechDef[] = [
   // ---------------------------------------------------------------- VINE
   { id: 'whip', name: 'WHIP', blurb: 'runners go further', cost: 9, currency: 'acid', icon: '➤', role: 'vine', tier: 1 },
   { id: 'lash', name: 'LASH', blurb: 'runners cost less', cost: 14, currency: 'acid', icon: '⇉', role: 'vine', tier: 2 },
-  { id: 'canopy', name: 'CANOPY', blurb: 'runners land much faster', cost: 14, currency: 'wood', icon: '❋', role: 'vine', tier: 2 },
-  { id: 'trellis', name: 'TRELLIS', blurb: 'cut runners barely rot', cost: 16, currency: 'wood', icon: '⌗', role: 'vine', tier: 2 },
-  { id: 'thicket', name: 'THICKET', blurb: 'runners are hard to chew through', cost: 22, currency: 'wood', icon: '፨', role: 'vine', tier: 3 },
+  { id: 'canopy', name: 'CANOPY', blurb: 'runners land much faster', cost: 14, currency: 'sun', icon: '❋', role: 'vine', tier: 2 },
+  { id: 'trellis', name: 'TRELLIS', blurb: 'cut runners barely rot', cost: 16, currency: 'sun', icon: '⌗', role: 'vine', tier: 2 },
+  { id: 'thicket', name: 'THICKET', blurb: 'runners are hard to chew through', cost: 22, currency: 'sun', icon: '፨', role: 'vine', tier: 3 },
   { id: 'lightning', name: 'LIGHTNING', blurb: 'runners cross half the garden', cost: 24, currency: 'acid', icon: '↯', role: 'vine', tier: 3 },
   { id: 'rend', name: 'REND', blurb: 'runners tear straight through enemy ground', cost: 26, currency: 'acid', icon: '⚔', role: 'vine', tier: 4 },
 
   // ---------------------------------------------------------------- MOSS
   { id: 'carpet', name: 'CARPET', blurb: 'claim a bigger patch', cost: 9, currency: 'acid', icon: '▦', role: 'moss', tier: 1 },
   { id: 'cushion', name: 'CUSHION', blurb: 'patches cost less to lay', cost: 12, currency: 'sun', icon: '☁', role: 'moss', tier: 2 },
-  { id: 'bark', name: 'BARK', blurb: 'much harder to eat', cost: 14, currency: 'wood', icon: '🛡', role: 'moss', tier: 2 },
+  { id: 'bark', name: 'BARK', blurb: 'much harder to eat', cost: 14, currency: 'sun', icon: '🛡', role: 'moss', tier: 2 },
   { id: 'bog', name: 'BOG', blurb: 'never withers', cost: 16, currency: 'acid', icon: '≋', role: 'moss', tier: 2 },
-  { id: 'rampart', name: 'RAMPART', blurb: 'they pay dearly for every tile', cost: 22, currency: 'wood', icon: '⛫', role: 'moss', tier: 3 },
-  { id: 'peat', name: 'PEAT', blurb: 'your ground feeds you richly', cost: 24, currency: 'wood', icon: '⬛', role: 'moss', tier: 3 },
+  { id: 'rampart', name: 'RAMPART', blurb: 'they pay dearly for every tile', cost: 22, currency: 'sun', icon: '⛫', role: 'moss', tier: 3 },
+  { id: 'peat', name: 'PEAT', blurb: 'your ground feeds you richly', cost: 24, currency: 'sun', icon: '⬛', role: 'moss', tier: 3 },
   { id: 'stonemoss', name: 'STONEMOSS', blurb: 'poison cannot touch your ground', cost: 26, currency: 'acid', icon: '🗿', role: 'moss', tier: 4 },
 
   // ---------------------------------------------------------------- SPORE
   { id: 'drift', name: 'DRIFT', blurb: 'hop further', cost: 9, currency: 'acid', icon: '❂', role: 'spore', tier: 1 },
   { id: 'pod', name: 'POD', blurb: 'spores cost less', cost: 14, currency: 'acid', icon: '◍', role: 'spore', tier: 2 },
-  { id: 'burst', name: 'BURSTPOD', blurb: 'landings spread out', cost: 14, currency: 'wood', icon: '✺', role: 'spore', tier: 2 },
-  { id: 'windborne', name: 'WINDBORNE', blurb: 'landings are much tougher', cost: 16, currency: 'wood', icon: '🌀', role: 'spore', tier: 2 },
+  { id: 'burst', name: 'BURSTPOD', blurb: 'landings spread out', cost: 14, currency: 'acid', icon: '✺', role: 'spore', tier: 2 },
+  { id: 'windborne', name: 'WINDBORNE', blurb: 'landings are much tougher', cost: 16, currency: 'acid', icon: '🌀', role: 'spore', tier: 2 },
   { id: 'gale', name: 'GALE', blurb: 'hop clean across the garden', cost: 22, currency: 'acid', icon: '≈', role: 'spore', tier: 3 },
-  { id: 'bloomburst', name: 'BLOOMBURST', blurb: 'landings spread twice as far', cost: 24, currency: 'wood', icon: '❊', role: 'spore', tier: 3 },
+  { id: 'bloomburst', name: 'BLOOMBURST', blurb: 'landings spread twice as far', cost: 24, currency: 'acid', icon: '❊', role: 'spore', tier: 3 },
   { id: 'blight', name: 'BLIGHT', blurb: 'your poison swallows a wider block', cost: 26, currency: 'acid', icon: '☢', role: 'spore', tier: 4 },
 
   // ---------------------------------------------------------------- FUNGAL
@@ -440,9 +440,9 @@ export const TECHS: TechDef[] = [
    * thing (the wood spreads faster) and each is strictly better than the last, which
    * is the right shape for the faction people pick when they do not want to think.
    */
-  { id: 'grove', name: 'GROVE', blurb: 'the wood spreads faster', cost: 8, currency: 'wood', icon: '🌱', role: 'tree', tier: 1 },
-  { id: 'orchard', name: 'ORCHARD', blurb: 'faster still', cost: 16, currency: 'wood', icon: '🌳', role: 'tree', tier: 2 },
-  { id: 'oldgrowth', name: 'OLD GROWTH', blurb: 'the forest takes the world', cost: 26, currency: 'wood', icon: '🌲', role: 'tree', tier: 3 },
+  { id: 'grove', name: 'GROVE', blurb: 'the wood spreads faster', cost: 8, currency: 'sun', icon: '🌱', role: 'tree', tier: 1 },
+  { id: 'orchard', name: 'ORCHARD', blurb: 'faster still', cost: 16, currency: 'sun', icon: '🌳', role: 'tree', tier: 2 },
+  { id: 'oldgrowth', name: 'OLD GROWTH', blurb: 'the forest takes the world', cost: 26, currency: 'sun', icon: '🌲', role: 'tree', tier: 3 },
   { id: 'spawnsac', name: 'SPAWNSAC', blurb: 'insects live far longer', cost: 20, currency: 'wood', icon: '🥚', role: 'fungal', tier: 3 },
   /*
    * The insects are FUNGAL's endgame, and they are priced like it. Nothing else in
@@ -457,11 +457,11 @@ export const TECHS: TechDef[] = [
   // ---------------------------------------------------------------- THORN
   { id: 'barbs', name: 'BARBS', blurb: 'eat much faster', cost: 9, currency: 'acid', icon: '✖', role: 'thorn', tier: 1 },
   { id: 'spike', name: 'SPIKE', blurb: 'your thorns are much tougher', cost: 12, currency: 'sun', icon: '✧', role: 'thorn', tier: 2 },
-  { id: 'feed', name: 'FEED', blurb: 'eating gives energy', cost: 14, currency: 'wood', icon: '🍖', role: 'thorn', tier: 2 },
+  { id: 'feed', name: 'FEED', blurb: 'eating gives energy', cost: 14, currency: 'sun', icon: '🍖', role: 'thorn', tier: 2 },
   { id: 'swarm', name: 'SWARM', blurb: 'eating spreads twice as far', cost: 14, currency: 'acid', icon: '⁂', role: 'thorn', tier: 2 },
   { id: 'gorge', name: 'GORGE', blurb: 'every bite is a meal', cost: 20, currency: 'sun', icon: '🍯', role: 'thorn', tier: 3 },
   { id: 'venom', name: 'VENOM', blurb: 'eating costs almost nothing', cost: 22, currency: 'acid', icon: '☠', role: 'thorn', tier: 3 },
-  { id: 'bramble', name: 'BRAMBLE', blurb: 'eating spreads three times as far', cost: 24, currency: 'wood', icon: '҉', role: 'thorn', tier: 3 },
+  { id: 'bramble', name: 'BRAMBLE', blurb: 'eating spreads three times as far', cost: 24, currency: 'sun', icon: '҉', role: 'thorn', tier: 3 },
 ];
 
 /**

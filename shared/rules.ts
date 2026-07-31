@@ -256,6 +256,15 @@ export function legalTap(
    * deliberately ahead of this one), but it cannot take another inch. It is under
    * siege, and a siege is not a base of operations.
    */
+  /*
+   * TREE gains ground with its planting and by no other means — see `pacifist`.
+   *
+   * This sits above everything because BOTH halves matter. Blocking only attacks
+   * left it quietly able to hand-plant onto adjacent soil like a VINE, which is not
+   * the faction: the forest arrives in blocks, on a timer, and never any other way.
+   */
+  if (role.pacifist) return null;
+
   let touching = false;
   for (const n of neighbours(board, cell)) {
     const nb = board.cells[n];
@@ -298,8 +307,7 @@ export function legalTap(
   const victim = seats[c.owner];
   if (victim && !victim.alive) return touching ? 'grow' : null;
   if (peace) return null; // the opening truce — see PEACE_SEC
-  // A TREE never takes ground, and its ground is never taken. See `permanent`.
-  if (role.pacifist) return null;
+  // Nobody takes ground off a TREE. See `permanent`.
   if (victim && getRole(victim.role ?? 'vine').permanent) return null;
   return touching ? 'attack' : null;
 }

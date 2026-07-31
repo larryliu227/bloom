@@ -924,7 +924,15 @@ export class Garden {
       const owned = this.techFor(seat.seat);
       const mine = seatHeld[seat.seat] ?? { sun: 0, wood: 0, insect: 0, acid: 0 };
       seat.acid += ACID_PER_SEC * mine.acid * (owned.has('veins') ? TECH_VEINS_MUL : 1) * dt;
-      seat.wood += WOOD_BANK_PER_SEC * mine.wood * dt;
+      /*
+       * Timber is FUNGAL's and nobody else's.
+       *
+       * Every plant used to bank wood off a wood tile, which flatly contradicted the
+       * rule the tile exists for — and left 6-7 wood-priced techs on every other
+       * faction's list that they could in principle pay for after all. Wood income
+       * and wood-priced tech are now both fungal-only; see `techsFor`.
+       */
+      if (this.roleOf(seat.seat).digest) seat.wood += WOOD_BANK_PER_SEC * mine.wood * dt;
       // Sunlight banks in daylight only — ZENITH is what keeps the panels running.
       if (day || owned.has('zenith')) {
         seat.sun += SUN_BANK_PER_SEC * mine.sun * (day ? 1 : TECH_ZENITH_NIGHT) * dt;
