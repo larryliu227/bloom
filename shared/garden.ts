@@ -19,7 +19,7 @@
  */
 
 import type { Board, Cell, GameMode, MapKind, MatchState, Net, RoleDef, RoleId, Seat, TechDef, TechId } from './bloom.js';
-import { BOARD_H, BOARD_W, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
+import { BOARD_H, BOARD_W, CAPTURE_SLOWDOWN, PEACE_SEC, SPORE_DRIFT_PER_SEC, TAKEOVER_COST, TAKEOVER_SIZE, TAKEOVER_SEED_FRACTION, ACID_PER_SEC, SUN_BANK_PER_SEC, WOOD_BANK_PER_SEC, WOOD_ENERGY_PER_SEC, INSECT_ENERGY_PER_SEC, DRAFT_SEC, REPEL_COST, REPEL_COOLDOWN, REPEL_KNOCKBACK, TECHS, TECH_ZENITH_NIGHT, TECH_COMPOST_TILE, TECH_PEAT_TILE, TECH_HEARTWOOD, TECH_RAMPART_BOND, TECH_HIVE_CAP, TECH_HIVE_DISCOUNT, TECH_BARK_TOUGH, TECH_ENZYME_BONUS, TECH_FEED_ENERGY, TECH_BLIGHT_SIZE, TECH_DEW_ENERGY, TECH_GORGE_ENERGY, TECH_HUSK_TOUGH, TECH_PUTREFY_CAPTURE, TECH_REFLEX_COOLDOWN, TECH_SPAWNSAC_LIFE, TECH_SPIKE_TOUGH, TECH_TRELLIS_WITHER, TECH_VEINS_MUL, TECH_WINDBORNE_TOUGH, ENERGY_PER_TILE, ENERGY_PER_SEC, SUN_ENERGY_PER_SEC, START_ENERGY, WITHER_TIME, TERRITORY_FRACTION, TERRITORY_HOLD_SEC, HOME_CAPTURE_TIME, BOND_COST, BOND_TIME, DAY_SUN_BONUS, NIGHT_CREEP_MUL, NIGHT_DIGEST_BONUS, NIGHT_GROW_MUL, allyKey, isAllied, isDay, INSECT_STEP, INSECT_LIFE, INSECT_COST, INSECT_CAP, TECH_GROW_SPEED, TECH_SOLAR_BONUS, TECH_WITHER_MUL, SAP_PER_TILE, STORE_CAP, STORE_COST, STEAL_CAP, techsFor } from './bloom.js';
 import type { BloomEvent } from './bloom.js';
 import { makeRng } from './math.js';
 import { FAR_FROM_STORE, ROLE_IDS, SEAT_COLOURS, getRole, idx, isBeingTaken, legalTap, neighbours, repelBonus, repelHits, supplyMul, terrainDefence, xy } from './rules.js';
@@ -395,6 +395,7 @@ export class Garden {
       mode: this.opts.mode,
       phase: drafting ? 'draft' : 'playing',
       draftTimer: drafting ? DRAFT_SEC : 0,
+      peaceTimer: PEACE_SEC,
       phaseTimer: 0,
       board,
       seats,
@@ -670,11 +671,16 @@ export class Garden {
     return cost;
   }
 
+  /** True while the opening truce is running: nobody may take anything. */
+  get atPeace(): boolean {
+    return this.state.peaceTimer > 0;
+  }
+
   tap(seat: number, cell: number): boolean {
     const s = this.state;
     if (s.phase !== 'playing') return false;
     const role = this.effectiveRole(seat);
-    const kind = legalTap(s.board, s.seats, seat, role, cell);
+    const kind = legalTap(s.board, s.seats, seat, role, cell, this.atPeace);
     if (!kind) return false;
 
     /*
@@ -839,6 +845,8 @@ export class Garden {
     s.tick++;
     s.clock += dt;
 
+    // The opening truce burns down whether or not anyone is using it.
+    if (s.peaceTimer > 0) s.peaceTimer = Math.max(0, s.peaceTimer - dt);
     this.stepBlight();
     /*
      * Networks first, and again after claims settle.
@@ -1038,11 +1046,12 @@ export class Garden {
         night && !role.creep && !this.techFor(c.claimant).has('rain') ? NIGHT_GROW_MUL : 1;
       const dur =
         (c.kind === 'home'
-          ? HOME_CAPTURE_TIME *
+          ? CAPTURE_SLOWDOWN *
+            HOME_CAPTURE_TIME *
             defenderTough *
             (c.owner >= 0 && this.techFor(c.owner).has('heartwood') ? TECH_HEARTWOOD : 1)
           : contested
-            ? role.captureTime * defenderTough + bondSlow
+            ? CAPTURE_SLOWDOWN * role.captureTime * defenderTough + bondSlow
             : role.growTime) * nightMul;
       c.progress += dt / Math.max(0.1, dur);
       if (c.progress >= 1) {
@@ -1246,6 +1255,7 @@ export class Garden {
     const me = s.seats[seat];
     if (!me?.alive) return false;
     if (!this.roleOf(seat).remote) return false; // SPORE only
+    if (this.atPeace) return false; // no artillery during the truce
     if (me.acid < TAKEOVER_COST) return false;
     const target = s.board.cells[cell];
     if (!target) return false;
@@ -1378,7 +1388,8 @@ export class Garden {
 
       const adj = neighbours(s.board, bug.cell);
       // Bite an adjacent enemy tile.
-      const prey = adj.filter((n) => {
+      // An insect eating through the peace would make the truce a lie for one faction.
+      const prey = this.atPeace ? [] : adj.filter((n) => {
         const c = s.board.cells[n];
         return (
           c.owner >= 0 && c.owner !== bug.seat && !isAllied(s.allies, bug.seat, c.owner) && c.kind !== 'home'
@@ -2064,7 +2075,7 @@ export class Garden {
       // Somebody is already taking this one, including possibly us. Tapping it is
       // refused, so spending the bot's turn on it just means it does nothing.
       if (isBeingTaken(s.board, i)) continue;
-      const kind = legalTap(s.board, s.seats, seat, role, i);
+      const kind = legalTap(s.board, s.seats, seat, role, i, this.atPeace);
       if (!kind) continue;
       // Every tile it owns is a legal defence now, and a defence gains no ground —
       // handled above on its own terms, never as an expansion option.
@@ -2143,7 +2154,7 @@ export class Garden {
       const role = this.effectiveRole(seat.seat);
       let canAct = false;
       for (let i = 0; i < s.board.cells.length && !canAct; i++) {
-        const kind = legalTap(s.board, s.seats, seat.seat, role, i);
+        const kind = legalTap(s.board, s.seats, seat.seat, role, i, this.atPeace);
         // A repel is not a way to gain ground, so it is not evidence of life. Every
         // tile you own is ALWAYS a legal repel target, so counting it here would
         // mean nobody could ever be entombed again.

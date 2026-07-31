@@ -192,6 +192,8 @@ export function legalTap(
   seat: number,
   role: RoleDef,
   cell: number,
+  /** True during the opening truce: growing is fine, taking is not. */
+  peace = false,
 ): TapKind | null {
   const c = cellAt(board, cell);
   if (!c) return null;
@@ -263,6 +265,7 @@ export function legalTap(
   // Enemy tile. Everyone, SPORE included, still needs contact to eat.
   const victim = seats[c.owner];
   if (victim && !victim.alive) return touching ? 'grow' : null;
+  if (peace) return null; // the opening truce — see PEACE_SEC
   return touching ? 'attack' : null;
 }
 
@@ -462,11 +465,13 @@ export function legalCells(
   seat: number,
   role: RoleDef,
   allies: number[] = [],
+  /** True during the opening truce: growing is fine, taking is not. */
+  peace = false,
 ): Map<number, TapKind> {
   const out = new Map<number, TapKind>();
   const bonus = repelBonus(seats[seat]);
   for (let i = 0; i < board.cells.length; i++) {
-    const k = legalTap(board, seats, seat, role, i);
+    const k = legalTap(board, seats, seat, role, i, peace);
     if (!k) continue;
     /*
      * A cell already filling in is not tappable — EXCEPT one of your own, where a

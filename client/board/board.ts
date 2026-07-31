@@ -338,7 +338,9 @@ export class BoardView {
     }
     // Allies matter here: a defence never touches a friend's ground, so a tile whose
     // only neighbours are an ally's must not light up as one.
-    this.legal = legalCells(s.board, s.seats, this.mySeat, this.role, s.allies);
+    // The truce is a rule, so it belongs in the highlight too — an enemy tile that
+    // lights up and then refuses the tap teaches the player not to trust the board.
+    this.legal = legalCells(s.board, s.seats, this.mySeat, this.role, s.allies, s.peaceTimer > 0);
   }
 
   private onDown(e: PointerEvent): void {
@@ -376,7 +378,7 @@ export class BoardView {
     }
     const kind =
       s && this.mySeat >= 0 && cell >= 0
-        ? legalTap(s.board, s.seats, this.mySeat, this.role, cell)
+        ? legalTap(s.board, s.seats, this.mySeat, this.role, cell, s.peaceTimer > 0)
         : null;
     /*
      * A cell that is already filling in swallows the tap silently — no send, and no

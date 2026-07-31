@@ -607,6 +607,8 @@ export interface MatchState {
   events: BloomEvent[];
   /** Seconds left to choose a plant. Only meaningful while `phase` is `draft`. */
   draftTimer: number;
+  /** Seconds of opening truce left. While above zero, nobody may attack. */
+  peaceTimer: number;
 }
 
 /** Are these two seats allied? */
@@ -802,6 +804,33 @@ export const ENERGY_PER_TILE = 0.022;
 export const HOME_CAPTURE_TIME = 6;
 
 /**
+ * One dial for how long it takes to take anything off another player.
+ *
+ * Multiplies every CONTESTED capture — enemy tiles and seedlings both — and touches
+ * nothing about growing into empty ground. Expansion stays quick; conquest is meant
+ * to be the slow, committed, visible thing you can see coming and answer.
+ *
+ * A single multiplier rather than five edited role numbers, so the shape between the
+ * plants is preserved: THORN still eats fastest and MOSS still resists longest, the
+ * whole exchange just happens at a pace people can react to.
+ */
+export const CAPTURE_SLOWDOWN = 2.5;
+
+/**
+ * Opening truce. Nobody may take anything off anybody for this long.
+ *
+ * Every match used to begin with whoever was nearest a rival simply eating them
+ * while both were still one tile wide, which is not an opening, it is a coin flip on
+ * spawn distance. The truce is breathing room: claim ground, read the map, find the
+ * larder that feeds your plant, and decide who you are going to fight before anyone
+ * can touch you.
+ *
+ * Growing, creeping, building, teching and pacts all run normally throughout — the
+ * only thing held back is violence.
+ */
+export const PEACE_SEC = 30;
+
+/**
  * DEFENCE — tap ANY tile you own to shove an assault on it back.
  *
  * It does exactly ONE thing: every hostile claim in progress within REPEL_RADIUS is
@@ -834,7 +863,17 @@ export const REPEL_RADIUS = 2;
  * Fraction of an assault's progress a defence removes. Deliberately less than the
  * attacker regains before the cooldown is up — see the note above.
  */
-export const REPEL_KNOCKBACK = 0.35;
+/*
+ * MUST stay below what an attacker regains during REPEL_COOLDOWN, or a repelling
+ * defender goes net-positive and a seedling can never fall to anyone who is paying
+ * attention — the opposite of the attacker's-advantage rule.
+ *
+ * The arithmetic: a seedling takes CAPTURE_SLOWDOWN x HOME_CAPTURE_TIME = 15s, so an
+ * attacker gains cooldown/that per cycle, 3/15 = 0.2. Measured at the old 0.35 (set
+ * when a seedling took 6s and a cycle was worth 0.5): a perfect defender held for
+ * 180 seconds and 60 repels. Anything meaningfully under 0.2 keeps it a delay.
+ */
+export const REPEL_KNOCKBACK = 0.12;
 /** Seconds before that seat may defend again, from anywhere. One shared cooldown. */
 export const REPEL_COOLDOWN = 3;
 

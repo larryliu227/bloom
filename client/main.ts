@@ -197,6 +197,7 @@ class Bloom {
   private hatchBtn: HTMLButtonElement | null = null;
   private role: RoleId | null = null;
   private resultShown = false;
+  private peaceEl: HTMLElement | null = null;
   private draftEl: HTMLElement | null = null;
   private draftHead: HTMLElement | null = null;
   private draftBlurb: HTMLElement | null = null;
@@ -547,6 +548,8 @@ class Bloom {
     this.overlay.appendChild(this.techPanel());
     this.overlay.appendChild(this.allyPanelEl());
     this.overlay.appendChild(this.draftSheet());
+    this.peaceEl = el('div', 'peace hidden');
+    this.overlay.appendChild(this.peaceEl);
     this.view.show();
     this.view.resize();
   }
@@ -1051,6 +1054,19 @@ class Bloom {
             : 'TAP TO OFFER';
       a.row.classList.toggle('is-allied', pact);
       a.row.classList.toggle('is-offered', !pact && offersToUs.includes(a.seat));
+    }
+
+    /*
+     * The truce banner. Counting it down in the open matters — a player who taps an
+     * enemy tile and gets nothing needs to know it is a rule and when it lifts, not
+     * wonder whether the game is broken.
+     */
+    if (this.peaceEl) {
+      const left = state.peaceTimer;
+      this.peaceEl.classList.toggle('hidden', left <= 0);
+      if (left > 0) {
+        this.peaceEl.textContent = `TRUCE · ${Math.ceil(left)}s · grow, nobody can be attacked`;
+      }
     }
 
     document.body.dataset.sky = isDay(state.clock) ? 'day' : 'night';
